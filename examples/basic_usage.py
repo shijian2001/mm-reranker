@@ -1,0 +1,60 @@
+"""Basic usage example for mm_reranker_eval."""
+
+from mm_reranker_eval import MMReranker, Query, Document
+
+def main():
+    """Demonstrate basic usage of the package."""
+    
+    # Initialize reranker
+    print("Initializing reranker...")
+    reranker = MMReranker(
+        model_name="jinaai/jina-reranker-m0",
+        device="cuda",
+        use_flash_attention=True
+    )
+    
+    # Example 1: Text to Image
+    print("\n=== Example 1: Text to Image ===")
+    query = Query(text="slm markdown")
+    documents = [
+        Document(image="https://raw.githubusercontent.com/jina-ai/multimodal-reranker-test/main/handelsblatt-preview.png"),
+        Document(image="https://raw.githubusercontent.com/jina-ai/multimodal-reranker-test/main/paper-11.png"),
+        Document(image="https://raw.githubusercontent.com/jina-ai/multimodal-reranker-test/main/wired-preview.png"),
+    ]
+    
+    result = reranker.rank(query, documents)
+    print(f"Ranked indices: {result.ranked_indices}")
+    print(f"Scores: {result.scores}")
+    
+    # Example 2: Image to Text
+    print("\n=== Example 2: Image to Text ===")
+    query = Query(image="path/to/query_image.jpg")
+    documents = [
+        Document(text="A beautiful sunset over the ocean"),
+        Document(text="A cat sleeping on a couch"),
+        Document(text="Mountain landscape with snow"),
+    ]
+    
+    # Note: This will work if you have actual image files
+    # result = reranker.rank(query, documents)
+    # print(f"Ranked indices: {result.ranked_indices}")
+    
+    # Example 3: Mixed Modality
+    print("\n=== Example 3: Mixed Modality ===")
+    query = Query(text="What is this building?", image="path/to/building.jpg")
+    documents = [
+        Document(text="The Eiffel Tower in Paris", image="path/to/eiffel.jpg"),
+        Document(text="The Statue of Liberty in New York", image="path/to/statue.jpg"),
+        Document(text="Big Ben in London", image="path/to/bigben.jpg"),
+    ]
+    
+    # Note: This will work if you have actual image files
+    # result = reranker.rank(query, documents)
+    # print(f"Ranked indices: {result.ranked_indices}")
+    
+    print("\nBasic usage examples completed!")
+
+
+if __name__ == "__main__":
+    main()
+
