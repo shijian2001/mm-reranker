@@ -62,27 +62,17 @@ class DseQwen2Mrl(BaseReranker):
 
         # Load model using cached file to avoid hanging
         try:
-            # Try to load from cached file (faster if already downloaded)
+            # Load from cached file (faster if already downloaded)
             model_file = cached_file(self.model_name, "pytorch_model.bin")
             state_dict = torch.load(model_file, weights_only=True, map_location='cpu')
 
             config = AutoConfig.from_pretrained(self.model_name)
-
-            # Don't modify config! Just use it as-is
-            # Pass attn_implementation to model constructor if supported
-            if self.use_flash_attention:
-                self.model = Qwen2VLForConditionalGeneration(
-                    config,
-                    attn_implementation="flash_attention_2"
-                )
-            else:
-                self.model = Qwen2VLForConditionalGeneration(config)
-
+            self.model = Qwen2VLForConditionalGeneration(config)
             self.model.load_state_dict(state_dict, strict=True, assign=False)
 
         except Exception as e:
-            # Fallback to standard from_pretrained if cached file method fails
-            print(f"Warning: Cached file loading failed ({e}), falling back to from_pretrained...")
+            # Fallback to standard from_pretrained
+            print(f"Warning: Cached file loading failed, falling back to from_pretrained...")
             attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                 self.model_name,
