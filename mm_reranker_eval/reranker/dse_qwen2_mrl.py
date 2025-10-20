@@ -62,7 +62,7 @@ class DseQwen2Mrl(BaseReranker):
 
         # Load model using cached file to avoid hanging
         model_file = cached_file(self.model_name, "pytorch_model.bin")
-        state_dict = torch.load(model_file, weights_only=True, map_location='cpu')
+        state_dict = torch.load(model_file, weights_only=True)
 
         config = AutoConfig.from_pretrained(self.model_name)
         self.model = Qwen2VLForConditionalGeneration(config)
