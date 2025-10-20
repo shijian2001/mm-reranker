@@ -115,8 +115,25 @@ class BgeVlMllmReranker(BaseReranker):
             candi_inputs = self.model.data_process(q_or_c="c", **candi_kwargs)
 
             # Get embeddings
-            query_embs = self.model(**query_inputs, output_hidden_states=True)[:, -1, :]
-            candi_embs = self.model(**candi_inputs, output_hidden_states=True)[:, -1, :]
+            query_outputs = self.model(**query_inputs, output_hidden_states=True)
+            candi_outputs = self.model(**candi_inputs, output_hidden_states=True)
+            
+            # DEBUG: Print output types and structure
+            print(f"\n[DEBUG] Query output type: {type(query_outputs)}")
+            print(f"[DEBUG] Query output dir: {[x for x in dir(query_outputs) if not x.startswith('_')][:10]}")
+            if hasattr(query_outputs, 'shape'):
+                print(f"[DEBUG] Query output shape: {query_outputs.shape}")
+            if hasattr(query_outputs, 'hidden_states'):
+                print(f"[DEBUG] Query has hidden_states: {len(query_outputs.hidden_states) if query_outputs.hidden_states else 0}")
+            if isinstance(query_outputs, (tuple, list)):
+                print(f"[DEBUG] Query is tuple/list, length: {len(query_outputs)}")
+                if len(query_outputs) > 0:
+                    print(f"[DEBUG] Query[0] type: {type(query_outputs[0])}, shape: {query_outputs[0].shape if hasattr(query_outputs[0], 'shape') else 'N/A'}")
+            print()
+            
+            # Try to extract embeddings - will error here but we'll see the debug info
+            query_embs = query_outputs[:, -1, :]
+            candi_embs = candi_outputs[:, -1, :]
 
             # Normalize and compute scores
             query_embs = torch.nn.functional.normalize(query_embs, dim=-1)
