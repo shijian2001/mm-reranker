@@ -24,6 +24,7 @@ class DseQwen2Mrl(BaseReranker):
         min_pixels: int = 1 * 28 * 28,
         max_pixels: int = 2560 * 28 * 28,
         embedding_dim: int = 1536,
+        instruction: str = None,
         **kwargs
     ):
         """
@@ -36,6 +37,7 @@ class DseQwen2Mrl(BaseReranker):
             min_pixels: Minimum pixels for image processing
             max_pixels: Maximum pixels for image processing
             embedding_dim: Embedding dimension (e.g., 512, 1536)
+            instruction: Task instruction (not used by DSE Qwen2 MRL)
             **kwargs: Additional model arguments
         """
         super().__init__(model_name, device, **kwargs)
@@ -43,6 +45,8 @@ class DseQwen2Mrl(BaseReranker):
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
         self.embedding_dim = embedding_dim
+        if instruction is not None:
+            self._warn_unused_param("instruction", instruction)
         self._load_model()
     
     def _load_model(self) -> None:
@@ -56,9 +60,11 @@ class DseQwen2Mrl(BaseReranker):
         
         attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-            self.model_name, attn_implementation=attn_impl, torch_dtype=torch.bfloat16
-        )
-        self.model.to(self.device).eval()
+            self.model_name, 
+            attn_implementation=attn_impl, 
+            torch_dtype=torch.bfloat16,
+            device_map=self.device
+        ).eval()
         self.model.padding_side = "left"
     
     def _get_embedding(self, last_hidden_state: torch.Tensor) -> torch.Tensor:
@@ -138,9 +144,11 @@ class DseQwen2Mrl(BaseReranker):
     
     def _compute_scores(
         self, query_str: str, doc_strs: List[str],
-        query_type: str, doc_type: str, **kwargs
+        query_type: str, doc_type: str, instruction: str = None, **kwargs
     ) -> List[float]:
         """Compute scores using embeddings and cosine similarity."""
+        if instruction is not None:
+            self._warn_unused_param("instruction", instruction)
         # Determine if inputs are images
         def is_image_input(s: str) -> bool:
             return s.startswith(('http://', 'https://')) or s.endswith(
@@ -166,3 +174,20 @@ class DseQwen2Mrl(BaseReranker):
         text = frozenset([Modality.TEXT])
         image = frozenset([Modality.IMAGE])
         return {(text, text), (text, image), (image, text), (image, image)}
+    
+    def to(self, device: str) -> "DseQwen2Mrl":
+        """
+        Move model to specified device.
+        
+        Note: This model uses device_map during loading, so it's already on the device.
+        This method only updates the device attribute.
+        
+        Args:
+            device: Target device ('cuda' or 'cpu')
+            
+        Returns:
+            Self for chaining
+        """
+        self.device = device
+        # Model is already on device via device_map, no need to move
+        return self

@@ -19,6 +19,7 @@ class JinaMMReranker(BaseReranker):
         model_name: str = "jinaai/jina-reranker-m0",
         device: str = "cuda",
         use_flash_attention: bool = True,
+        instruction: str = None,
         **kwargs
     ):
         """
@@ -28,10 +29,13 @@ class JinaMMReranker(BaseReranker):
             model_name: HuggingFace model name/path
             device: Device to run on ('cuda' or 'cpu')
             use_flash_attention: Whether to use flash attention 2 (requires compatible GPU)
+            instruction: Task instruction (not used by Jina reranker)
             **kwargs: Additional model arguments
         """
         super().__init__(model_name, device, **kwargs)
         self.use_flash_attention = use_flash_attention and device == "cuda"
+        if instruction is not None:
+            self._warn_unused_param("instruction", instruction)
         self._load_model()
     
     def _load_model(self) -> None:
@@ -81,6 +85,7 @@ class JinaMMReranker(BaseReranker):
         query_type: str,
         doc_type: str,
         max_length: int = 2048,
+        instruction: str = None,
         **kwargs
     ) -> List[float]:
         """
@@ -92,11 +97,14 @@ class JinaMMReranker(BaseReranker):
             query_type: Query type ('text', 'image', 'auto')
             doc_type: Document type ('text', 'image', 'auto')
             max_length: Maximum sequence length
+            instruction: Task instruction (not used by Jina reranker)
             **kwargs: Additional arguments (ignored)
             
         Returns:
             List of relevance scores
         """
+        if instruction is not None:
+            self._warn_unused_param("instruction", instruction)
         # Create query-document pairs
         pairs = [[query_str, doc_str] for doc_str in doc_strs]
         
@@ -124,27 +132,18 @@ class JinaMMReranker(BaseReranker):
         - text to image
         - image to text
         - image to image
-        - mixed to mixed
-        - and other combinations
         
         Returns:
             Set of supported (query_modalities, doc_modalities) tuples
         """
-        # Jina reranker is quite flexible, supporting most combinations
         text = frozenset([Modality.TEXT])
         image = frozenset([Modality.IMAGE])
-        text_image = frozenset([Modality.TEXT, Modality.IMAGE])
         
         return {
             (text, text),
             (text, image),
             (image, text),
             (image, image),
-            (text_image, text),
-            (text_image, image),
-            (text_image, text_image),
-            (text, text_image),
-            (image, text_image),
         }
 
 
@@ -161,6 +160,8 @@ class JinaClipReranker(BaseReranker):
         model_name: str = "jinaai/jina-clip-v2",
         device: str = "cuda",
         truncate_dim: int = None,
+        instruction: str = None,
+        use_flash_attention: bool = None,
         **kwargs
     ):
         """
@@ -170,10 +171,16 @@ class JinaClipReranker(BaseReranker):
             model_name: HuggingFace model name/path
             device: Device to run on ('cuda' or 'cpu')
             truncate_dim: Matryoshka dimension (None for full 1024-dim vectors)
+            instruction: Task instruction (not used by Jina CLIP v2)
+            use_flash_attention: Flash attention (not used by Jina CLIP v2)
             **kwargs: Additional model arguments
         """
         super().__init__(model_name, device, **kwargs)
         self.truncate_dim = truncate_dim
+        if instruction is not None:
+            self._warn_unused_param("instruction", instruction)
+        if use_flash_attention is not None:
+            self._warn_unused_param("use_flash_attention", use_flash_attention)
         self._load_model()
     
     def _load_model(self) -> None:
@@ -286,6 +293,7 @@ class JinaClipReranker(BaseReranker):
         doc_strs: List[Union[str, List[str]]],
         query_type: str,
         doc_type: str,
+        instruction: str = None,
         **kwargs
     ) -> List[float]:
         """
@@ -296,11 +304,14 @@ class JinaClipReranker(BaseReranker):
             doc_strs: List of formatted documents (text or image paths)
             query_type: Query type ('text' or 'image')
             doc_type: Document type ('text' or 'image')
+            instruction: Task instruction (not used by Jina CLIP v2)
             **kwargs: Additional arguments (ignored)
             
         Returns:
             List of similarity scores
         """
+        if instruction is not None:
+            self._warn_unused_param("instruction", instruction)
         # Encode query
         if query_type == "text":
             query_embedding = self._encode_text(query_str, is_query=True)

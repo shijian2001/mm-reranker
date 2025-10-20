@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import List, Set, Dict, Tuple, Optional
+import warnings
 from mm_reranker_eval.data.types import Query, Document, RankResult, Modality
 
 
@@ -30,6 +31,7 @@ class BaseReranker(ABC):
         self.model_name = model_name
         self.device = device
         self.model = None
+        self._unused_params = []  # Track unused parameters
     
     def rank(self, query: Query, documents: List[Document], **kwargs) -> RankResult:
         """
@@ -92,7 +94,7 @@ class BaseReranker(ABC):
         return RankResult(ranked_indices=ranked_indices, scores=ranked_scores)
     
     @abstractmethod
-    def _format(self, item: Query | Document) -> str:
+    def _format(self, item: Query | Document):
         """
         Convert Query or Document to model-specific input format.
         
@@ -100,15 +102,15 @@ class BaseReranker(ABC):
             item: Query or Document object
             
         Returns:
-            Formatted string for model input
+            Formatted input for model (str, dict, or other model-specific format)
         """
         pass
     
     @abstractmethod
     def _compute_scores(
         self,
-        query_str: str,
-        doc_strs: List[str],
+        query_str,
+        doc_strs: List,
         query_type: str,
         doc_type: str,
         **kwargs
@@ -120,11 +122,11 @@ class BaseReranker(ABC):
         call their model API here.
         
         Args:
-            query_str: Formatted query string
-            doc_strs: List of formatted document strings
+            query_str: Formatted query (str, dict, or model-specific format)
+            doc_strs: List of formatted documents
             query_type: Query type ('text', 'image', 'auto', etc.)
             doc_type: Document type ('text', 'image', 'auto', etc.)
-            **kwargs: Additional model-specific arguments (e.g., max_length)
+            **kwargs: Additional model-specific arguments (e.g., max_length, instruction)
             
         Returns:
             List of scores, one per document
@@ -273,6 +275,23 @@ class BaseReranker(ABC):
         if self.model is not None:
             self.model.to(device)
         return self
+    
+    def _warn_unused_param(self, param_name: str, param_value) -> None:
+        """
+        Warn about unused parameter.
+        
+        Args:
+            param_name: Name of the parameter
+            param_value: Value of the parameter
+        """
+        if param_name not in self._unused_params:
+            self._unused_params.append(param_name)
+            warnings.warn(
+                f"Parameter '{param_name}' (value={param_value}) is not used by {self.__class__.__name__} "
+                f"and will be ignored.",
+                UserWarning,
+                stacklevel=3
+            )
     
     def __repr__(self) -> str:
         """String representation."""

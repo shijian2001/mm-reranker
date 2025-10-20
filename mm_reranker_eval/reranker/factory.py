@@ -7,6 +7,7 @@ from typing import Optional, Dict, Callable, List
 from mm_reranker_eval.reranker.base import BaseReranker
 from mm_reranker_eval.reranker.jina import JinaMMReranker, JinaClipReranker
 from mm_reranker_eval.reranker.dse_qwen2_mrl import DseQwen2Mrl
+from mm_reranker_eval.reranker.bge_vl_mllm import BgeVlMllmReranker
 
 
 # Registry mapping model names/patterns to reranker classes
@@ -14,6 +15,7 @@ RERANKER_REGISTRY = {
     "jinaai/jina-reranker-m0": JinaMMReranker,
     "jinaai/jina-clip-v2": JinaClipReranker,
     "MrLight/dse-qwen2-2b-mrl-v1": DseQwen2Mrl,
+    "BAAI/BGE-VL-MLLM-S1": BgeVlMllmReranker,
 }
 
 # Registry for model type detection patterns
@@ -22,6 +24,7 @@ MODEL_TYPE_PATTERNS = {
     "jina-reranker": JinaMMReranker,
     "jina-clip": JinaClipReranker,
     "dse-qwen2": DseQwen2Mrl,
+    "bge-vl-mllm": BgeVlMllmReranker,
 }
 
 
