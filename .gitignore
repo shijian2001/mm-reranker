@@ -44,7 +44,6 @@ results/
 *.json
 
 # Data
-data/
 images/
 mbeir_images/
 
