@@ -7,6 +7,9 @@ model:
   #   - Absolute path: /path/to/local/model
   #   - Relative path: ./models/my-model
   # For local paths, model type is auto-detected from directory name or config.json
+  # 
+  # Note: Jina reranker and similar models require both query_type and doc_type
+  # parameters. The framework automatically infers these from query/document modalities.
   name: jinaai/jina-reranker-m0
   
   # Device: 'cuda' or 'cpu' (default: cuda)

@@ -37,9 +37,10 @@ class BaseReranker(ABC):
         
         This method handles the complete ranking flow:
         1. Validate modalities
-        2. Group documents by type
-        3. Compute scores for each group
-        4. Merge and rank results
+        2. Infer query and document types
+        3. Group documents by type
+        4. Compute scores for each group
+        5. Merge and rank results
         
         Args:
             query: Query object (can be text, image, video, or mixed)
@@ -61,6 +62,9 @@ class BaseReranker(ABC):
         # Format query once
         query_str = self._format(query)
         
+        # Infer query type
+        query_type = self._infer_query_type(query)
+        
         # Group documents by type to handle mixed modality candidates
         doc_groups = self._group_documents_by_type(documents, self._infer_doc_type)
         
@@ -74,7 +78,7 @@ class BaseReranker(ABC):
             
             # Compute scores for this group
             group_scores = self._compute_scores(
-                query_str, doc_strs, doc_type, **kwargs
+                query_str, doc_strs, query_type, doc_type, **kwargs
             )
             
             # Assign scores back to original positions
@@ -105,6 +109,7 @@ class BaseReranker(ABC):
         self,
         query_str: str,
         doc_strs: List[str],
+        query_type: str,
         doc_type: str,
         **kwargs
     ) -> List[float]:
@@ -117,6 +122,7 @@ class BaseReranker(ABC):
         Args:
             query_str: Formatted query string
             doc_strs: List of formatted document strings
+            query_type: Query type ('text', 'image', 'auto', etc.)
             doc_type: Document type ('text', 'image', 'auto', etc.)
             **kwargs: Additional model-specific arguments (e.g., max_length)
             
@@ -142,20 +148,20 @@ class BaseReranker(ABC):
         """
         pass
     
-    def _infer_doc_type(self, document: Document) -> str:
+    def _infer_type(self, item: Query | Document) -> str:
         """
-        Infer document type for grouping and model parameter selection.
+        Infer item type (query or document) for model parameter selection.
         
         Default implementation returns 'text', 'image', or 'auto'.
         Subclasses can override for custom logic.
         
         Args:
-            document: Document to classify
+            item: Query or Document to classify
             
         Returns:
-            Document type string ('text', 'image', 'auto', etc.)
+            Type string ('text', 'image', 'auto', etc.)
         """
-        modalities = document.get_modalities()
+        modalities = item.get_modalities()
         
         if Modality.IMAGE in modalities and Modality.TEXT not in modalities:
             return "image"
@@ -164,6 +170,36 @@ class BaseReranker(ABC):
         else:
             # Mixed or other modalities
             return "auto"
+    
+    def _infer_query_type(self, query: Query) -> str:
+        """
+        Infer query type for model parameter selection.
+        
+        Delegates to _infer_type() for the actual logic.
+        Subclasses can override _infer_type() for custom logic.
+        
+        Args:
+            query: Query to classify
+            
+        Returns:
+            Query type string ('text', 'image', 'auto', etc.)
+        """
+        return self._infer_type(query)
+    
+    def _infer_doc_type(self, document: Document) -> str:
+        """
+        Infer document type for grouping and model parameter selection.
+        
+        Delegates to _infer_type() for the actual logic.
+        Subclasses can override _infer_type() for custom logic.
+        
+        Args:
+            document: Document to classify
+            
+        Returns:
+            Document type string ('text', 'image', 'auto', etc.)
+        """
+        return self._infer_type(document)
     
     def validate_modalities(self, query: Query, documents: List[Document]) -> None:
         """

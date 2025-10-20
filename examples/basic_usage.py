@@ -33,6 +33,9 @@ def main():
         Document(image="https://raw.githubusercontent.com/jina-ai/multimodal-reranker-test/main/wired-preview.png"),
     ]
     
+    # The reranker automatically infers:
+    #   - query_type="text" (pure text query)
+    #   - doc_type="image" (image documents)
     result = reranker.rank(query, documents)
     print(f"Ranked indices: {result.ranked_indices}")
     print(f"Scores: {result.scores}")
@@ -47,6 +50,9 @@ def main():
     ]
     
     # Note: This will work if you have actual image files
+    # The reranker would automatically infer:
+    #   - query_type="image" (image query)
+    #   - doc_type="text" (text documents)
     # result = reranker.rank(query, documents)
     # print(f"Ranked indices: {result.ranked_indices}")
     
@@ -60,6 +66,9 @@ def main():
     ]
     
     # Note: This will work if you have actual image files
+    # The reranker would automatically infer:
+    #   - query_type="auto" (mixed: text + image query)
+    #   - doc_type="auto" (mixed: text + image documents)
     # result = reranker.rank(query, documents)
     # print(f"Ranked indices: {result.ranked_indices}")
     

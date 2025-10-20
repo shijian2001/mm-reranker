@@ -97,10 +97,16 @@ documents = [
 ]
 
 # Rank documents
+# The reranker automatically infers:
+#   - query_type="text" (pure text query)
+#   - doc_type="image" for image documents
+#   - doc_type="text" for text documents
 result = reranker.rank(query, documents)
 print(f"Ranked indices: {result.ranked_indices}")
 print(f"Scores: {result.scores}")
 ```
+
+**Note:** Models like Jina reranker require both `query_type` and `doc_type` to handle different retrieval scenarios correctly. The framework automatically infers these types based on the query and document modalities, ensuring optimal model performance.
 
 ### 2. CLI Usage
 
@@ -245,12 +251,17 @@ class MyReranker(BaseReranker):
         self,
         query_str: str,
         doc_strs: List[str],
+        query_type: str,
         doc_type: str,
         **kwargs
     ) -> List[float]:
         """Call your model API to compute scores."""
-        # Create pairs and compute scores
-        scores = self.model.compute_similarity(query_str, doc_strs)
+        # Create pairs and compute scores with type information
+        scores = self.model.compute_similarity(
+            query_str, doc_strs,
+            query_type=query_type,
+            doc_type=doc_type
+        )
         return scores.tolist()
     
     def supported_modalities(self) -> Set[tuple]:
@@ -270,10 +281,20 @@ reranker = MMReranker("./models/mymodel-v1")  # Auto-detected!
 ```
 
 **That's it!** The base class automatically handles:
+- ✅ Query type inference (`text`, `image`, `auto`)
 - ✅ Document grouping by type
-- ✅ Type inference (`text`, `image`, `auto`)
+- ✅ Document type inference (`text`, `image`, `auto`)
 - ✅ Score merging and ranking
 - ✅ Modality validation
+
+**Understanding Type Parameters:**
+
+The `query_type` and `doc_type` parameters are automatically inferred by the base class:
+- `"text"`: Pure text modality
+- `"image"`: Pure image modality  
+- `"auto"`: Mixed or other modalities (text + image, video, etc.)
+
+Many multimodal models (like Jina reranker) require both `query_type` and `doc_type` to properly handle different retrieval scenarios (text-to-image, image-to-text, etc.). The base class automatically detects these types and passes them to your `_compute_scores` method.
 
 ### Adding New Metrics
 

@@ -75,6 +75,8 @@ def main():
     
     # Initialize evaluator
     print("\nInitializing evaluator...")
+    # The evaluator uses Jina reranker which requires both query_type and doc_type
+    # These are automatically inferred from the query and document modalities
     evaluator = Evaluator(
         model_name="jinaai/jina-reranker-m0",
         device="cuda",

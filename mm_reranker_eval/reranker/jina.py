@@ -77,6 +77,7 @@ class JinaMMReranker(BaseReranker):
         self,
         query_str: str,
         doc_strs: List[str],
+        query_type: str,
         doc_type: str,
         max_length: int = 2048,
         **kwargs
@@ -87,6 +88,7 @@ class JinaMMReranker(BaseReranker):
         Args:
             query_str: Formatted query string
             doc_strs: List of formatted document strings
+            query_type: Query type ('text', 'image', 'auto')
             doc_type: Document type ('text', 'image', 'auto')
             max_length: Maximum sequence length
             **kwargs: Additional arguments (ignored)
@@ -102,6 +104,7 @@ class JinaMMReranker(BaseReranker):
             scores = self.model.compute_score(
                 pairs,
                 max_length=max_length,
+                query_type=query_type,
                 doc_type=doc_type
             )
         

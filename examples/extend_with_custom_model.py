@@ -57,6 +57,7 @@ class CustomReranker(BaseReranker):
         self,
         query_str: str,
         doc_strs: List[str],
+        query_type: str,
         doc_type: str,
         **kwargs
     ) -> List[float]:
@@ -66,6 +67,7 @@ class CustomReranker(BaseReranker):
         Args:
             query_str: Formatted query string
             doc_strs: List of formatted document strings
+            query_type: Query type ('text', 'image', 'auto')
             doc_type: Document type ('text', 'image', 'auto')
             **kwargs: Additional model-specific arguments
             
@@ -74,7 +76,11 @@ class CustomReranker(BaseReranker):
         """
         # This is a dummy implementation for demonstration
         # Replace with actual model inference:
-        # scores = self.model.compute_similarity(query_str, doc_strs)
+        # scores = self.model.compute_similarity(
+        #     query_str, doc_strs, 
+        #     query_type=query_type, 
+        #     doc_type=doc_type
+        # )
         
         # Dummy scores for demo
         import random
