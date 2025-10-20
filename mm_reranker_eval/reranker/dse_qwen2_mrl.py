@@ -48,22 +48,43 @@ class DseQwen2Mrl(BaseReranker):
         if instruction is not None:
             self._warn_unused_param("instruction", instruction)
         self._load_model()
-    
+
     def _load_model(self) -> None:
         """Load the DSE Qwen2 MRL model and processor."""
-        from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
-        
+        from transformers import AutoProcessor, AutoConfig, Qwen2VLForConditionalGeneration
+        from transformers.utils.hub import cached_file
+
+        # Load processor
         self.processor = AutoProcessor.from_pretrained(
             self.model_name, min_pixels=self.min_pixels, max_pixels=self.max_pixels
         )
         self.processor.tokenizer.padding_side = "left"
-        
-        attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
-        self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-            self.model_name,
-            attn_implementation=attn_impl,
-            dtype=torch.bfloat16
-        ).to(self.device).eval()
+
+        # Load model using cached file to avoid hanging
+        try:
+            # Try to load from cached file (faster if already downloaded)
+            model_file = cached_file(self.model_name, "pytorch_model.bin")
+            state_dict = torch.load(model_file, weights_only=True, map_location='cpu')
+
+            config = AutoConfig.from_pretrained(self.model_name)
+            attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
+            config.attn_implementation = attn_impl
+
+            self.model = Qwen2VLForConditionalGeneration(config)
+            self.model.load_state_dict(state_dict, strict=True, assign=False)
+
+        except Exception as e:
+            # Fallback to standard from_pretrained if cached file method fails
+            print(f"Warning: Cached file loading failed ({e}), falling back to from_pretrained...")
+            attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
+                self.model_name,
+                attn_implementation=attn_impl,
+                dtype=torch.bfloat16
+            )
+
+        # Move to device and set to eval mode
+        self.model = self.model.to(self.device, dtype=torch.bfloat16).eval()
         self.model.padding_side = "left"
     
     def _get_embedding(self, last_hidden_state: torch.Tensor) -> torch.Tensor:
