@@ -67,10 +67,17 @@ class DseQwen2Mrl(BaseReranker):
             state_dict = torch.load(model_file, weights_only=True, map_location='cpu')
 
             config = AutoConfig.from_pretrained(self.model_name)
-            attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
-            config.attn_implementation = attn_impl
 
-            self.model = Qwen2VLForConditionalGeneration(config)
+            # Don't modify config! Just use it as-is
+            # Pass attn_implementation to model constructor if supported
+            if self.use_flash_attention:
+                self.model = Qwen2VLForConditionalGeneration(
+                    config,
+                    attn_implementation="flash_attention_2"
+                )
+            else:
+                self.model = Qwen2VLForConditionalGeneration(config)
+
             self.model.load_state_dict(state_dict, strict=True, assign=False)
 
         except Exception as e:
@@ -80,7 +87,8 @@ class DseQwen2Mrl(BaseReranker):
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                 self.model_name,
                 attn_implementation=attn_impl,
-                dtype=torch.bfloat16
+                torch_dtype=torch.bfloat16,
+                low_cpu_mem_usage=True
             )
 
         # Move to device and set to eval mode
