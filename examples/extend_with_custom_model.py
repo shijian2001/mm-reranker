@@ -10,8 +10,16 @@ class CustomReranker(BaseReranker):
     """
     Example custom reranker implementation.
     
-    This is a dummy implementation for demonstration purposes.
-    Replace with your actual model logic.
+    The base class handles the ranking flow (template method pattern).
+    You only need to implement 3 methods:
+    - _format(): Convert Query/Document to model input format
+    - _compute_scores(): Call your model API to compute scores
+    - supported_modalities(): Declare supported modality combinations
+    
+    The base class automatically handles:
+    - Document grouping by type
+    - Score merging and ranking
+    - Modality validation
     """
     
     def __init__(self, model_name: str, device: str = "cuda", **kwargs):
@@ -23,48 +31,63 @@ class CustomReranker(BaseReranker):
         # self.model = load_your_model(model_name)
         # self.model.to(device)
     
-    def rank(
-        self,
-        query: Query,
-        documents: List[Document],
-        **kwargs
-    ) -> RankResult:
+    def _format(self, item: Query | Document) -> str:
         """
-        Rank documents given a query.
+        Convert Query or Document to model input format.
+        
+        This method is called for both queries and documents.
         
         Args:
-            query: Query object
-            documents: List of documents to rank
-            **kwargs: Additional ranking arguments
+            item: Query or Document object
             
         Returns:
-            RankResult with ranked indices and scores
+            Formatted string for model input
         """
-        # Validate modalities
-        self.validate_modalities(query, documents)
+        # Simple example: just return text or image path
+        if item.text is not None:
+            return item.text
+        elif item.image is not None:
+            return item.image
+        elif item.video is not None:
+            return item.video
+        else:
+            return ""
+    
+    def _compute_scores(
+        self,
+        query_str: str,
+        doc_strs: List[str],
+        doc_type: str,
+        **kwargs
+    ) -> List[float]:
+        """
+        Compute scores using your model.
         
-        # Implement your ranking logic here
-        # This is a dummy implementation
-        scores = [0.5 + i * 0.1 for i in range(len(documents))]
+        Args:
+            query_str: Formatted query string
+            doc_strs: List of formatted document strings
+            doc_type: Document type ('text', 'image', 'auto')
+            **kwargs: Additional model-specific arguments
+            
+        Returns:
+            List of scores, one per document
+        """
+        # This is a dummy implementation for demonstration
+        # Replace with actual model inference:
+        # scores = self.model.compute_similarity(query_str, doc_strs)
         
-        # Sort by scores (descending)
-        ranked_indices = sorted(
-            range(len(scores)),
-            key=lambda i: scores[i],
-            reverse=True
-        )
-        ranked_scores = [scores[i] for i in ranked_indices]
-        
-        return RankResult(ranked_indices=ranked_indices, scores=ranked_scores)
+        # Dummy scores for demo
+        import random
+        scores = [random.random() for _ in doc_strs]
+        return scores
     
     def supported_modalities(self) -> Set[tuple]:
         """
-        Get supported modality combinations.
+        Declare supported modality combinations.
         
         Returns:
             Set of (query_modalities, doc_modalities) tuples
         """
-        # Define which modality combinations your model supports
         text = frozenset([Modality.TEXT])
         image = frozenset([Modality.IMAGE])
         

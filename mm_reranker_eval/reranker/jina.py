@@ -49,66 +49,9 @@ class JinaMMReranker(BaseReranker):
         self.model.to(self.device)
         self.model.eval()
     
-    def rank(
-        self,
-        query: Query,
-        documents: List[Document],
-        max_length: int = 2048,
-        **kwargs
-    ) -> RankResult:
-        """
-        Rank documents given a query.
-        
-        Args:
-            query: Query object
-            documents: List of documents to rank
-            max_length: Maximum sequence length
-            **kwargs: Additional arguments
-            
-        Returns:
-            RankResult with ranked indices and scores
-        """
-        if len(documents) == 0:
-            return RankResult(ranked_indices=[], scores=[])
-        
-        # Validate modalities
-        self.validate_modalities(query, documents)
-        
-        # Convert to Jina format
-        query_str = self._to_jina_format(query)
-        doc_strs = [self._to_jina_format(doc) for doc in documents]
-        
-        # Create pairs
-        pairs = [[query_str, doc_str] for doc_str in doc_strs]
-        
-        # Determine doc_type based on document modalities
-        doc_type = self._infer_doc_type(documents[0])
-        
-        # Compute scores
-        with torch.no_grad():
-            scores = self.model.compute_score(
-                pairs,
-                max_length=max_length,
-                doc_type=doc_type
-            )
-        
-        # Ensure scores is a list
-        if not isinstance(scores, list):
-            scores = scores.tolist() if hasattr(scores, 'tolist') else [scores]
-        
-        # Rank by scores (descending)
-        ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-        ranked_scores = [scores[i] for i in ranked_indices]
-        
-        return RankResult(ranked_indices=ranked_indices, scores=ranked_scores)
-    
-    def _to_jina_format(self, item: Query | Document) -> str:
+    def _format(self, item: Query | Document) -> str:
         """
         Convert Query or Document to Jina format.
-        
-        For text-only: returns the text
-        For image-only: returns the image path/URL
-        For mixed: returns text + image path/URL combined
         
         Args:
             item: Query or Document object
@@ -127,29 +70,46 @@ class JinaMMReranker(BaseReranker):
         if item.video is not None:
             parts.append(item.video)
         
-        # For single modality, return as-is
-        # For mixed, combine with space
+        # For single modality, return as-is; for mixed, combine with space
         return " ".join(parts) if len(parts) > 1 else parts[0]
     
-    def _infer_doc_type(self, document: Document) -> str:
+    def _compute_scores(
+        self,
+        query_str: str,
+        doc_strs: List[str],
+        doc_type: str,
+        max_length: int = 2048,
+        **kwargs
+    ) -> List[float]:
         """
-        Infer doc_type parameter for Jina model.
+        Compute scores using Jina model API.
         
         Args:
-            document: Document to infer type from
+            query_str: Formatted query string
+            doc_strs: List of formatted document strings
+            doc_type: Document type ('text', 'image', 'auto')
+            max_length: Maximum sequence length
+            **kwargs: Additional arguments (ignored)
             
         Returns:
-            'text', 'image', or 'auto'
+            List of relevance scores
         """
-        modalities = document.get_modalities()
+        # Create query-document pairs
+        pairs = [[query_str, doc_str] for doc_str in doc_strs]
         
-        if Modality.IMAGE in modalities and Modality.TEXT not in modalities:
-            return "image"
-        elif Modality.TEXT in modalities and Modality.IMAGE not in modalities:
-            return "text"
-        else:
-            # Mixed or other
-            return "auto"
+        # Compute scores with Jina model
+        with torch.no_grad():
+            scores = self.model.compute_score(
+                pairs,
+                max_length=max_length,
+                doc_type=doc_type
+            )
+        
+        # Ensure scores is a list
+        if not isinstance(scores, list):
+            scores = scores.tolist() if hasattr(scores, 'tolist') else [scores]
+        
+        return scores
     
     def supported_modalities(self) -> Set[tuple]:
         """

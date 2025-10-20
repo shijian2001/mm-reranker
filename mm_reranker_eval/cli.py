@@ -5,6 +5,7 @@ import logging
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 from mm_reranker_eval.config import EvalConfig
 from mm_reranker_eval.evaluation.evaluator import Evaluator
@@ -26,12 +27,13 @@ def setup_logging(verbose: bool = False) -> None:
     )
 
 
-def load_candidate_docs(path: str) -> list[Document]:
+def load_candidate_docs(path: str, base_dir: Optional[str] = None) -> list[Document]:
     """
     Load candidate documents from JSONL file.
     
     Args:
         path: Path to JSONL file with documents
+        base_dir: Base directory to prepend to image/video paths
         
     Returns:
         List of Document objects

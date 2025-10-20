@@ -218,21 +218,43 @@ For local paths, the model type is detected from:
 
 ### Adding a New Model
 
+The package uses a **template method pattern** - the base class handles the ranking flow, you just implement model-specific details:
+
 ```python
 from mm_reranker_eval.reranker import BaseReranker, register_reranker
-from mm_reranker_eval.data.types import Query, Document, RankResult, Modality
+from mm_reranker_eval.data.types import Query, Document, Modality
+from typing import List, Set
 
 class MyReranker(BaseReranker):
     def __init__(self, model_name: str, device: str = "cuda", **kwargs):
         super().__init__(model_name, device, **kwargs)
         # Load your model
-        
-    def rank(self, query: Query, documents: List[Document], **kwargs) -> RankResult:
-        # Implement ranking logic
-        pass
-        
+        self.model = load_your_model(model_name)
+        self.model.to(device)
+    
+    def _format(self, item: Query | Document) -> str:
+        """Convert Query or Document to model input format."""
+        # Combine text and image paths as needed
+        if item.text:
+            return item.text
+        elif item.image:
+            return item.image
+        # Or combine: return f"{item.text or ''} {item.image or ''}".strip()
+    
+    def _compute_scores(
+        self,
+        query_str: str,
+        doc_strs: List[str],
+        doc_type: str,
+        **kwargs
+    ) -> List[float]:
+        """Call your model API to compute scores."""
+        # Create pairs and compute scores
+        scores = self.model.compute_similarity(query_str, doc_strs)
+        return scores.tolist()
+    
     def supported_modalities(self) -> Set[tuple]:
-        # Return supported modality combinations
+        """Return supported modality combinations."""
         text = frozenset([Modality.TEXT])
         image = frozenset([Modality.IMAGE])
         return {(text, image), (image, text)}
@@ -246,6 +268,12 @@ reranker = MMReranker("my-model-name")
 # Local paths with "mymodel" in name will also auto-detect
 reranker = MMReranker("./models/mymodel-v1")  # Auto-detected!
 ```
+
+**That's it!** The base class automatically handles:
+- ✅ Document grouping by type
+- ✅ Type inference (`text`, `image`, `auto`)
+- ✅ Score merging and ranking
+- ✅ Modality validation
 
 ### Adding New Metrics
 
@@ -270,9 +298,12 @@ The evaluator automatically:
 
 ## Results
 
-Results are saved to the output directory:
+Results are saved to the output directory with two files:
 
-**results.json:**
+### 1. Aggregated Results (`results.json`)
+
+Summary metrics across all queries:
+
 ```json
 {
   "model_name": "jinaai/jina-reranker-m0",
@@ -284,25 +315,90 @@ Results are saved to the output directory:
     "recall@5": 0.78,
     "recall@7": 0.84,
     "recall@10": 0.89,
-    "mrr": 0.56
+    "mrr": 0.56,
+    "ndcg@5": 0.68,
+    "ndcg@10": 0.72
   },
-  "config": {...},
-  "timestamp": "2025-10-14T10:30:00"
+  "config": {
+    "recall_k": [1, 3, 5, 7, 10],
+    "ndcg_k": [5, 10],
+    "rank_kwargs": {"max_length": 2048}
+  },
+  "timestamp": "2025-10-14T10:30:00.123456"
 }
 ```
 
-**per_query_results.json** (if `save_per_query: true`):
+### 2. Per-Query Results (`per_query_results.json`)
+
+Detailed results for each query (if `save_per_query: true`):
+
 ```json
 [
   {
     "query_idx": 0,
     "dataset": "VisualNews",
     "id": 2378,
-    "metrics": {"recall@1": 1.0, "recall@3": 1.0, ...}
+    "query": {
+      "text": "Sayulita beach town",
+      "image": null,
+      "video": null
+    },
+    "match": {
+      "text": null,
+      "image": "images/beach_town.jpg",
+      "video": null
+    },
+    "metrics": {
+      "recall@1": 1.0,
+      "recall@3": 1.0,
+      "recall@5": 1.0,
+      "recall@7": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@5": 1.0,
+      "ndcg@10": 1.0
+    },
+    "ranked_indices": [234, 567, 89, 123, ...],
+    "scores": [0.95, 0.82, 0.76, 0.71, ...],
+    "gt_idx": 234
   },
-  ...
+  {
+    "query_idx": 1,
+    "dataset": "VisualNews",
+    "id": 2379,
+    "query": {
+      "text": null,
+      "image": "images/soldier.jpg",
+      "video": null
+    },
+    "match": {
+      "text": "A South Korean soldier patrols the border",
+      "image": null,
+      "video": null
+    },
+    "metrics": {
+      "recall@1": 0.0,
+      "recall@3": 1.0,
+      "recall@5": 1.0,
+      "mrr": 0.5
+    },
+    "ranked_indices": [456, 123, 789, ...],
+    "scores": [0.88, 0.85, 0.79, ...],
+    "gt_idx": 123
+  }
 ]
 ```
+
+**Field Descriptions:**
+- `query_idx`: Query index in the evaluation set
+- `dataset`: Dataset name from eval data
+- `id`: Sample ID from eval data
+- `query`: Query content (text/image/video)
+- `match`: Ground truth document
+- `metrics`: Per-query metrics
+- `ranked_indices`: Document indices sorted by relevance (descending)
+- `scores`: Relevance scores corresponding to ranked_indices
+- `gt_idx`: Index of ground truth document in candidate list
 
 ## License
 
