@@ -14,13 +14,53 @@ A unified, elegant package for evaluating multimodal reranking models across var
 
 ## Installation
 
+### 1. Install uv
+
 ```bash
-pip install -e .
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-For flash attention support (recommended for better performance):
+### 2. Create virtual environment
+
+Choose your environment path and create it:
+
 ```bash
-pip install flash-attn
+./scripts/setup_env.sh /your-path/envs/mm-reranker/dev
+```
+
+### 3. Activate environment
+
+```bash
+source scripts/activate_env.sh /your-path/envs/mm-reranker/dev
+```
+
+### 4. Install package
+
+```bash
+# Basic installation
+uv pip install -e .
+
+# With flash attention (recommended for better performance)
+uv pip install -e '.[flash-attention]'
+
+# With development tools
+uv pip install -e '.[dev]'
+```
+
+### 5. Deactivate environment
+
+```bash
+deactivate
+```
+
+### 6. Switch to different environment
+
+```bash
+# Deactivate current environment
+deactivate
+
+# Activate another environment
+source scripts/activate_env.sh /path/to/another/env
 ```
 
 ## Quick Start
