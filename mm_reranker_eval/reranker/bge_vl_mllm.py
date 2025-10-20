@@ -33,22 +33,28 @@ class BgeVlMllmReranker(BaseReranker):
         super().__init__(model_name, device, **kwargs)
         self.instruction = instruction or ""
         self._load_model()
-    
+
     def _load_model(self) -> None:
         """Load the BGE-VL-MLLM model."""
         from transformers import AutoModel
-        
+        import os
+
         self.model = AutoModel.from_pretrained(
             self.model_name,
             trust_remote_code=True
         )
-        
+
         self.model.to(self.device)
         self.model.eval()
-        
-        # Set processor
+
+        # Set processor - use HF model ID if local path
+        processor_name = self.model_name
+        if os.path.exists(self.model_name) or os.path.isdir(self.model_name):
+            # Local path detected, use default HF model ID for processor
+            processor_name = "BAAI/BGE-VL-MLLM-S1"
+
         with torch.no_grad():
-            self.model.set_processor(self.model_name)
+            self.model.set_processor(processor_name)
     
     def _format(self, item: Query | Document) -> dict:
         """
