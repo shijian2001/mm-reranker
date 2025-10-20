@@ -18,6 +18,7 @@ A unified, elegant package for evaluating multimodal reranking models across var
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc
 ```
 
 ### 2. Create virtual environment
@@ -25,7 +26,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 Choose your environment path and create it:
 
 ```bash
-./scripts/setup_env.sh /your-path/envs/mm-reranker/dev
+bash ./scripts/setup_env.sh /your-path/envs/mm-reranker/dev
 ```
 
 ### 3. Activate environment
