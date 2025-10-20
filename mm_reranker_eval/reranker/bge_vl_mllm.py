@@ -69,17 +69,17 @@ class BgeVlMllmReranker(BaseReranker):
         return result
 
     def _compute_scores(
-            self,
-            query_str: dict,
-            doc_strs: List[dict],
-            query_type: str,
-            doc_type: str,
-            instruction: str = None,
-            **kwargs
+        self,
+        query_str: dict,
+        doc_strs: List[dict],
+        query_type: str,
+        doc_type: str,
+        instruction: str = None,
+        **kwargs
     ) -> List[float]:
         """
         Compute scores using BGE-VL-MLLM embeddings.
-
+        
         Args:
             query_str: Formatted query dict with 'text' and 'images'
             doc_strs: List of formatted document dicts
@@ -89,7 +89,7 @@ class BgeVlMllmReranker(BaseReranker):
             **kwargs: Additional arguments
         """
         task_instruction = instruction if instruction is not None else self.instruction
-
+        
         with torch.no_grad():
             # Process query - only pass non-None values
             query_kwargs = {k: v for k, v in {
@@ -98,11 +98,11 @@ class BgeVlMllmReranker(BaseReranker):
                 "task_instruction": task_instruction
             }.items() if v is not None}
             query_inputs = self.model.data_process(q_or_c="q", **query_kwargs)
-
+            
             # Process candidates
             has_text = any(d["text"] is not None for d in doc_strs)
             has_images = any(d["images"] is not None for d in doc_strs)
-
+            
             candi_kwargs = {}
             if has_text and not has_images:
                 candi_kwargs["text"] = [d["text"] for d in doc_strs]
@@ -111,40 +111,23 @@ class BgeVlMllmReranker(BaseReranker):
             else:
                 candi_kwargs["text"] = [d["text"] for d in doc_strs]
                 candi_kwargs["images"] = [d["images"] for d in doc_strs]
-
+            
             candi_inputs = self.model.data_process(q_or_c="c", **candi_kwargs)
-
+            
             # Get embeddings
-            query_outputs = self.model(**query_inputs, output_hidden_states=True)
-            candi_outputs = self.model(**candi_inputs, output_hidden_states=True)
+            query_embs = self.model(**query_inputs, output_hidden_states=True)[:, -1, :]
+            candi_embs = self.model(**candi_inputs, output_hidden_states=True)[:, -1, :]
             
-            # DEBUG: Print output types and structure
-            print(f"\n[DEBUG] Query output type: {type(query_outputs)}")
-            print(f"[DEBUG] Query output dir: {[x for x in dir(query_outputs) if not x.startswith('_')][:10]}")
-            if hasattr(query_outputs, 'shape'):
-                print(f"[DEBUG] Query output shape: {query_outputs.shape}")
-            if hasattr(query_outputs, 'hidden_states'):
-                print(f"[DEBUG] Query has hidden_states: {len(query_outputs.hidden_states) if query_outputs.hidden_states else 0}")
-            if isinstance(query_outputs, (tuple, list)):
-                print(f"[DEBUG] Query is tuple/list, length: {len(query_outputs)}")
-                if len(query_outputs) > 0:
-                    print(f"[DEBUG] Query[0] type: {type(query_outputs[0])}, shape: {query_outputs[0].shape if hasattr(query_outputs[0], 'shape') else 'N/A'}")
-            print()
-            
-            # Try to extract embeddings - will error here but we'll see the debug info
-            query_embs = query_outputs[:, -1, :]
-            candi_embs = candi_outputs[:, -1, :]
-
             # Normalize and compute scores
             query_embs = torch.nn.functional.normalize(query_embs, dim=-1)
             candi_embs = torch.nn.functional.normalize(candi_embs, dim=-1)
             scores = torch.matmul(query_embs, candi_embs.T)
-
+            
             # Convert to list
             scores = scores.squeeze(0).cpu().float().tolist()
             if not isinstance(scores, list):
                 scores = [scores]
-
+        
         return scores
     
     def supported_modalities(self) -> Set[tuple]:
