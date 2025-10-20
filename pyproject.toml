@@ -39,6 +39,7 @@ dev = [
 ]
 
 [tool.uv.extra-build-dependencies]
+mm-reranker-eval = ["setuptools"]
 flash-attn = [
     "setuptools",
     "wheel",
