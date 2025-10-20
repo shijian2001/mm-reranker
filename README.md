@@ -294,14 +294,6 @@ Results are saved to the output directory:
 ]
 ```
 
-## Design Principles
-
-1. **Simplicity**: Unified interface, minimal APIs
-2. **Extensibility**: Easy to add new models, metrics, and modalities
-3. **Type Safety**: Full Python typing and docstrings
-4. **Performance**: Parallel GPU evaluation, efficient processing
-5. **Clarity**: Clean naming (mm vs multimodal), clear code structure
-
 ## License
 
 MIT License
