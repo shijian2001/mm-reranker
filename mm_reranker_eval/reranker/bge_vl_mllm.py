@@ -83,14 +83,6 @@ class BgeVlMllmReranker(BaseReranker):
     ) -> List[float]:
         """
         Compute scores using BGE-VL-MLLM embeddings.
-
-        Args:
-            query_str: Formatted query dict with 'text' and 'images'
-            doc_strs: List of formatted document dicts
-            query_type: Query type (not used by BGE-VL-MLLM)
-            doc_type: Document type (not used by BGE-VL-MLLM)
-            instruction: Task instruction for retrieval
-            **kwargs: Additional arguments
         """
         task_instruction = instruction if instruction is not None else self.instruction
 
@@ -100,12 +92,17 @@ class BgeVlMllmReranker(BaseReranker):
                 "text": query_str["text"],
                 "images": query_str["images"],
                 "task_instruction": task_instruction
-            }.items() if v}  # Changed: v instead of v is not None
+            }.items() if v}
+
+            print(f"[DEBUG] Query kwargs: {query_kwargs}")  # DEBUG
             query_inputs = self.model.data_process(q_or_c="q", **query_kwargs)
 
             # Process candidates - check for non-empty values
-            has_text = any(d["text"] for d in doc_strs)  # Changed: considers empty strings as False
+            has_text = any(d["text"] for d in doc_strs)
             has_images = any(d["images"] for d in doc_strs)
+
+            print(f"[DEBUG] has_text={has_text}, has_images={has_images}")  # DEBUG
+            print(f"[DEBUG] First 3 doc_strs: {doc_strs[:3]}")  # DEBUG
 
             candi_kwargs = {}
             if has_text and not has_images:
@@ -118,6 +115,16 @@ class BgeVlMllmReranker(BaseReranker):
                 # Multimodal candidates
                 candi_kwargs["text"] = [d["text"] for d in doc_strs]
                 candi_kwargs["images"] = [d["images"] for d in doc_strs]
+
+            print(f"[DEBUG] Candi kwargs keys: {candi_kwargs.keys()}")  # DEBUG
+            if "images" in candi_kwargs:
+                print(f"[DEBUG] First 2 images: {candi_kwargs['images'][:2]}")  # DEBUG
+            if "text" in candi_kwargs:
+                print(f"[DEBUG] First 2 texts: {candi_kwargs['text'][:2]}")  # DEBUG
+
+            # Also check processor configuration
+            print(
+                f"[DEBUG] Processor patch_size: {getattr(self.model.processor.image_processor, 'patch_size', 'N/A')}")  # DEBUG
 
             candi_inputs = self.model.data_process(q_or_c="c", **candi_kwargs)
 
