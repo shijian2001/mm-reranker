@@ -81,6 +81,8 @@ The package currently supports the following reranker models:
 - **Jina AI Reranker M0** (`jinaai/jina-reranker-m0`): Cross-encoder based multimodal reranker
 - **Jina CLIP v2** (`jinaai/jina-clip-v2`): Embedding-based CLIP model for retrieval
 - **DSE Qwen2 MRL** (`MrLight/dse-qwen2-2b-mrl-v1`): Qwen2VL-based multimodal embedding model
+- **BGE-VL-MLLM** (`BAAI/BGE-VL-MLLM-S1`): BAAI's multimodal reranker supporting comprehensive multimodal retrieval
+- **GME-Qwen2-VL** (`Alibaba-NLP/gme-Qwen2-VL-7B-Instruct`): Alibaba's General Multimodal Embedding model based on Qwen2-VL
 
 ## Quick Start
 
@@ -91,10 +93,11 @@ from mm_reranker_eval import MMReranker, Query, Document
 
 # Initialize reranker with remote model name
 reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
-# Or use Jina CLIP v2 for embedding-based retrieval
-# reranker = MMReranker("jinaai/jina-clip-v2", device="cuda")
-# Or use DSE Qwen2 MRL for Qwen2VL-based retrieval
-# reranker = MMReranker("MrLight/dse-qwen2-2b-mrl-v1", device="cuda")
+# Or use other supported models:
+# reranker = MMReranker("jinaai/jina-clip-v2", device="cuda")  # Jina CLIP v2
+# reranker = MMReranker("MrLight/dse-qwen2-2b-mrl-v1", device="cuda")  # DSE Qwen2 MRL
+# reranker = MMReranker("BAAI/BGE-VL-MLLM-S1", device="cuda")  # BGE-VL-MLLM
+# reranker = MMReranker("Alibaba-NLP/gme-Qwen2-VL-7B-Instruct", device="cuda")  # GME-Qwen2-VL
 
 # Or use a local model path (type auto-detected from directory name or config.json)
 # reranker = MMReranker("/path/to/local/model", device="cuda")

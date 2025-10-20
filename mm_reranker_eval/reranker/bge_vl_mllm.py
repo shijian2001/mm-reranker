@@ -86,58 +86,40 @@ class BgeVlMllmReranker(BaseReranker):
             instruction: Task instruction for retrieval
             **kwargs: Additional arguments
         """
-        # Use instruction from parameter or instance default
         task_instruction = instruction if instruction is not None else self.instruction
         
         with torch.no_grad():
-            # Process query
-            query_inputs = self.model.data_process(
-                text=query_str["text"],
-                images=query_str["images"],
-                q_or_c="q",
-                task_instruction=task_instruction
-            )
+            # Process query - only pass non-None values
+            query_kwargs = {k: v for k, v in {
+                "text": query_str["text"],
+                "images": query_str["images"],
+                "task_instruction": task_instruction
+            }.items() if v is not None}
+            query_inputs = self.model.data_process(q_or_c="q", **query_kwargs)
             
-            # Process candidates
-            # Separate text and image candidates
+            # Process candidates - only pass non-None values
             has_text = any(d["text"] is not None for d in doc_strs)
             has_images = any(d["images"] is not None for d in doc_strs)
             
-            # Prepare candidate inputs based on modality
-            candi_text = None
-            candi_images = None
+            candi_kwargs = {}
+            if has_text:
+                candi_kwargs["text"] = [d["text"] for d in doc_strs]
+            if has_images:
+                candi_kwargs["images"] = [d["images"] for d in doc_strs]
             
-            if has_text and not has_images:
-                # Text-only candidates
-                candi_text = [d["text"] for d in doc_strs]
-            elif has_images and not has_text:
-                # Image-only candidates
-                candi_images = [d["images"] for d in doc_strs]
-            else:
-                # Mixed or multimodal candidates
-                candi_text = [d["text"] for d in doc_strs]
-                candi_images = [d["images"] for d in doc_strs]
-            
-            candi_inputs = self.model.data_process(
-                text=candi_text,
-                images=candi_images,
-                q_or_c="c",
-            )
+            candi_inputs = self.model.data_process(q_or_c="c", **candi_kwargs)
             
             # Get embeddings
             query_embs = self.model(**query_inputs, output_hidden_states=True)[:, -1, :]
             candi_embs = self.model(**candi_inputs, output_hidden_states=True)[:, -1, :]
             
-            # Normalize
+            # Normalize and compute scores
             query_embs = torch.nn.functional.normalize(query_embs, dim=-1)
             candi_embs = torch.nn.functional.normalize(candi_embs, dim=-1)
-            
-            # Compute scores
             scores = torch.matmul(query_embs, candi_embs.T)
             
-            # Convert to list (scores is a 1 x N tensor)
+            # Convert to list
             scores = scores.squeeze(0).cpu().float().tolist()
-            
             if not isinstance(scores, list):
                 scores = [scores]
         
