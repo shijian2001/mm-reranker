@@ -49,6 +49,10 @@ class BgeVlMllmReranker(BaseReranker):
         # Set processor
         with torch.no_grad():
             self.model.set_processor(self.model_name)
+            # Workaround for transformers bug: manually set patch_size if None
+            if hasattr(self.model.processor, 'image_processor'):
+                if getattr(self.model.processor.image_processor, 'patch_size', None) is None:
+                    self.model.processor.image_processor.patch_size = 14
     
     def _format(self, item: Query | Document) -> dict:
         """
