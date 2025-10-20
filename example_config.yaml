@@ -3,7 +3,8 @@
 model:
   # Model name or path (required)
   # Can be:
-  #   - Remote model name: jinaai/jina-reranker-m0, jinaai/jina-clip-v2
+  #   - Remote model name: jinaai/jina-reranker-m0, jinaai/jina-clip-v2, 
+  #     lightonai/MonoQwen2-VL-v0.1, etc.
   #   - Absolute path: /path/to/local/model
   #   - Relative path: ./models/my-model
   # For local paths, model type is auto-detected from directory name or config.json

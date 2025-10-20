@@ -61,6 +61,11 @@ uv sync --active --no-build-isolation --extra flash-attention --extra colpali --
   pip install git+https://github.com/illuin-tech/colpali
   ```
 
+**Note for MonoQwen2-VL users:**
+- MonoQwen2-VL requires `peft >= 0.7.0` (for LoRA adapter support)
+- This is automatically installed with the base package
+- The model is based on Qwen2-VL-2B-Instruct with LoRA adapters
+
 ### 5. Add and remove package
 
 ```bash
@@ -94,6 +99,7 @@ The package currently supports the following reranker models:
 - **BGE-VL-MLLM** (`BAAI/BGE-VL-MLLM-S1`): BAAI's multimodal reranker supporting comprehensive multimodal retrieval
 - **GME-Qwen2-VL** (`Alibaba-NLP/gme-Qwen2-VL-7B-Instruct`): Alibaba's General Multimodal Embedding model based on Qwen2-VL
 - **ColQwen2** (`vidore/colqwen2-v1.0`): ColPali-based vision-language model for document retrieval using multi-vector embeddings
+- **MonoQwen2-VL** (`lightonai/MonoQwen2-VL-v0.1`): Pointwise reranker based on Qwen2-VL-2B-Instruct that uses True/False generation for relevance scoring (requires `peft` for LoRA adapter support)
 
 ## Quick Start
 
@@ -110,6 +116,7 @@ reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
 # reranker = MMReranker("BAAI/BGE-VL-MLLM-S1", device="cuda")  # BGE-VL-MLLM
 # reranker = MMReranker("Alibaba-NLP/gme-Qwen2-VL-7B-Instruct", device="cuda")  # GME-Qwen2-VL
 # reranker = MMReranker("vidore/colqwen2-v1.0", device="cuda")  # ColQwen2
+# reranker = MMReranker("lightonai/MonoQwen2-VL-v0.1", device="cuda")  # MonoQwen2-VL
 
 # Or use a local model path (type auto-detected from directory name or config.json)
 # reranker = MMReranker("/path/to/local/model", device="cuda")
