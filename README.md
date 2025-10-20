@@ -44,12 +44,22 @@ uv sync --active
 # With flash attention (recommended for better performance)
 uv sync --active --no-build-isolation --extra flash-attention
 
+# With ColQwen2 support (requires colpali-engine)
+uv sync --active --extra colpali
+
 # With development tools
 uv sync --active --extra dev
 
 # or
-uv sync --active --no-build-isolation --extra flash-attention --extra dev
+uv sync --active --no-build-isolation --extra flash-attention --extra colpali --extra dev
 ```
+
+**Note for ColQwen2 users:**
+- ColQwen2 requires `colpali-engine >= 0.3.4` and `transformers > 4.46.1`
+- If the PyPI version is outdated, install from source:
+  ```bash
+  pip install git+https://github.com/illuin-tech/colpali
+  ```
 
 ### 5. Add and remove package
 
@@ -83,6 +93,7 @@ The package currently supports the following reranker models:
 - **DSE Qwen2 MRL** (`MrLight/dse-qwen2-2b-mrl-v1`): Qwen2VL-based multimodal embedding model
 - **BGE-VL-MLLM** (`BAAI/BGE-VL-MLLM-S1`): BAAI's multimodal reranker supporting comprehensive multimodal retrieval
 - **GME-Qwen2-VL** (`Alibaba-NLP/gme-Qwen2-VL-7B-Instruct`): Alibaba's General Multimodal Embedding model based on Qwen2-VL
+- **ColQwen2** (`vidore/colqwen2-v1.0`): ColPali-based vision-language model for document retrieval using multi-vector embeddings
 
 ## Quick Start
 
@@ -98,6 +109,7 @@ reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
 # reranker = MMReranker("MrLight/dse-qwen2-2b-mrl-v1", device="cuda")  # DSE Qwen2 MRL
 # reranker = MMReranker("BAAI/BGE-VL-MLLM-S1", device="cuda")  # BGE-VL-MLLM
 # reranker = MMReranker("Alibaba-NLP/gme-Qwen2-VL-7B-Instruct", device="cuda")  # GME-Qwen2-VL
+# reranker = MMReranker("vidore/colqwen2-v1.0", device="cuda")  # ColQwen2
 
 # Or use a local model path (type auto-detected from directory name or config.json)
 # reranker = MMReranker("/path/to/local/model", device="cuda")

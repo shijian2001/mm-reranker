@@ -9,6 +9,7 @@ from mm_reranker_eval.reranker.jina import JinaMMReranker, JinaClipReranker
 from mm_reranker_eval.reranker.dse_qwen2_mrl import DseQwen2Mrl
 from mm_reranker_eval.reranker.bge_vl_mllm import BgeVlMllmReranker
 from mm_reranker_eval.reranker.gme_qwen2_vl import GmeQwen2VL
+from mm_reranker_eval.reranker.colqwen2 import ColQwen2Reranker
 
 
 # Registry mapping model names/patterns to reranker classes
@@ -18,6 +19,7 @@ RERANKER_REGISTRY = {
     "MrLight/dse-qwen2-2b-mrl-v1": DseQwen2Mrl,
     "BAAI/BGE-VL-MLLM-S1": BgeVlMllmReranker,
     "Alibaba-NLP/gme-Qwen2-VL-7B-Instruct": GmeQwen2VL,
+    "vidore/colqwen2-v1.0": ColQwen2Reranker,
 }
 
 # Registry for model type detection patterns
@@ -28,6 +30,7 @@ MODEL_TYPE_PATTERNS = {
     "dse-qwen2": DseQwen2Mrl,
     "bge-vl-mllm": BgeVlMllmReranker,
     "gme-qwen2-vl": GmeQwen2VL,
+    "colqwen2": ColQwen2Reranker,
 }
 
 
