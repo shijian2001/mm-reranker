@@ -1,4 +1,5 @@
 """ColQwen2 multimodal reranker implementation."""
+## TODO: env management
 
 from typing import List, Set
 import torch
