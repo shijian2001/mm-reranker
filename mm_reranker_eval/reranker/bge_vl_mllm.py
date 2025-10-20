@@ -1,4 +1,5 @@
 """BGE-VL-MLLM multimodal reranker implementation."""
+# TODO: TypeError: tuple indices must be integers or slices, not tuple
 
 from typing import List, Set
 import torch
