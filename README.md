@@ -83,6 +83,8 @@ from mm_reranker_eval import MMReranker, Query, Document
 
 # Initialize reranker with remote model name
 reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
+# Or use Jina CLIP v2 for embedding-based retrieval
+# reranker = MMReranker("jinaai/jina-clip-v2", device="cuda")
 
 # Or use a local model path (type auto-detected from directory name or config.json)
 # reranker = MMReranker("/path/to/local/model", device="cuda")

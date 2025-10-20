@@ -3,7 +3,7 @@
 model:
   # Model name or path (required)
   # Can be:
-  #   - Remote model name: jinaai/jina-reranker-m0
+  #   - Remote model name: jinaai/jina-reranker-m0, jinaai/jina-clip-v2
   #   - Absolute path: /path/to/local/model
   #   - Relative path: ./models/my-model
   # For local paths, model type is auto-detected from directory name or config.json
@@ -19,9 +19,12 @@ model:
   num_gpus: null
   
   # Use flash attention 2 for better performance (requires compatible GPU)
+  # Only applicable for jinaai/jina-reranker-m0
   use_flash_attention: true
   
   # Additional model-specific arguments
+  # For jinaai/jina-clip-v2, you can specify:
+  #   truncate_dim: 512  # Matryoshka dimension (None for full 1024-dim)
   kwargs: {}
 
 data:

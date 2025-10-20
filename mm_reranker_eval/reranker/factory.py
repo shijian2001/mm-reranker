@@ -5,18 +5,20 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, Callable, List
 from mm_reranker_eval.reranker.base import BaseReranker
-from mm_reranker_eval.reranker.jina import JinaMMReranker
+from mm_reranker_eval.reranker.jina import JinaMMReranker, JinaClipReranker
 
 
 # Registry mapping model names/patterns to reranker classes
 RERANKER_REGISTRY = {
     "jinaai/jina-reranker-m0": JinaMMReranker,
+    "jinaai/jina-clip-v2": JinaClipReranker,
 }
 
 # Registry for model type detection patterns
 # Maps pattern keywords to reranker classes
 MODEL_TYPE_PATTERNS = {
-    "jina": JinaMMReranker,
+    "jina-reranker": JinaMMReranker,
+    "jina-clip": JinaClipReranker,
 }
 
 
