@@ -25,7 +25,7 @@ def _evaluate_single_query(
     device: str,
     rank_kwargs: Dict[str, Any],
     metric_kwargs: Dict[str, Any]
-) -> Tuple[int, Dict[str, float]]:
+) -> Tuple[int, Dict[str, Any]]:
     """
     Evaluate a single query (worker function for parallel processing).
     
@@ -40,7 +40,7 @@ def _evaluate_single_query(
         metric_kwargs: Metric computation kwargs
         
     Returns:
-        Tuple of (query_idx, metrics_dict)
+        Tuple of (query_idx, result_dict with metrics and ranking info)
     """
     # Initialize model in this process
     reranker = MMReranker(model_name, device=device, **model_kwargs)
@@ -54,7 +54,7 @@ def _evaluate_single_query(
     
     if gt_idx is None:
         logger.warning(f"Ground truth not found in candidates for query {query_idx}")
-        return query_idx, {}
+        return query_idx, {"metrics": {}}
     
     # Rank documents
     rank_result = reranker.rank(eval_sample.query, candidate_docs, **rank_kwargs)
@@ -66,7 +66,12 @@ def _evaluate_single_query(
         **metric_kwargs
     )
     
-    return query_idx, metrics
+    return query_idx, {
+        "metrics": metrics,
+        "ranked_indices": rank_result.ranked_indices,
+        "scores": rank_result.scores or [],
+        "gt_idx": gt_idx
+    }
 
 
 def _is_same_document(doc1: Document, doc2: Document) -> bool:
@@ -162,21 +167,22 @@ class Evaluator:
         
         # Evaluate
         if self.num_gpus > 1 and len(eval_samples) > 1:
-            all_metrics = self._evaluate_parallel(
+            all_results = self._evaluate_parallel(
                 eval_samples,
                 candidate_docs,
                 rank_kwargs,
                 metric_kwargs
             )
         else:
-            all_metrics = self._evaluate_sequential(
+            all_results = self._evaluate_sequential(
                 eval_samples,
                 candidate_docs,
                 rank_kwargs,
                 metric_kwargs
             )
         
-        # Aggregate results
+        # Aggregate metrics
+        all_metrics = [r.get("metrics", {}) for r in all_results]
         aggregated_metrics = aggregate_metrics(all_metrics)
         
         # Prepare results
@@ -203,15 +209,32 @@ class Evaluator:
         
         # Save per-query results if requested
         if save_per_query:
-            per_query_results = [
-                {
+            per_query_results = []
+            for i in range(len(eval_samples)):
+                sample = eval_samples[i]
+                result = all_results[i]
+                
+                query_result = {
                     "query_idx": i,
-                    "dataset": eval_samples[i].dataset,
-                    "id": eval_samples[i].id,
-                    "metrics": all_metrics[i]
+                    "dataset": sample.dataset,
+                    "id": sample.id,
+                    "query": {
+                        "text": sample.query.text,
+                        "image": sample.query.image,
+                        "video": sample.query.video
+                    },
+                    "match": {
+                        "text": sample.match.text,
+                        "image": sample.match.image,
+                        "video": sample.match.video
+                    },
+                    "metrics": result.get("metrics", {}),
+                    "ranked_indices": result.get("ranked_indices", []),
+                    "scores": result.get("scores", []),
+                    "gt_idx": result.get("gt_idx")
                 }
-                for i in range(len(eval_samples))
-            ]
+                per_query_results.append(query_result)
+            
             with open(output_path / "per_query_results.json", "w") as f:
                 json.dump(per_query_results, f, indent=2)
         
@@ -226,12 +249,12 @@ class Evaluator:
         candidate_docs: List[Document],
         rank_kwargs: Dict[str, Any],
         metric_kwargs: Dict[str, Any]
-    ) -> List[Dict[str, float]]:
+    ) -> List[Dict[str, Any]]:
         """Evaluate queries sequentially (single GPU or CPU)."""
         device = f"cuda:0" if self.device_type == "cuda" else "cpu"
         reranker = MMReranker(self.model_name, device=device, **self.model_kwargs)
         
-        all_metrics = []
+        all_results = []
         
         for eval_sample in tqdm(eval_samples, desc="Evaluating"):
             # Find ground truth index
@@ -243,7 +266,7 @@ class Evaluator:
             
             if gt_idx is None:
                 logger.warning(f"Ground truth not found for sample {eval_sample.id}")
-                all_metrics.append({})
+                all_results.append({"metrics": {}})
                 continue
             
             # Rank
@@ -255,9 +278,15 @@ class Evaluator:
                 relevant_idx=gt_idx,
                 **metric_kwargs
             )
-            all_metrics.append(metrics)
+            
+            all_results.append({
+                "metrics": metrics,
+                "ranked_indices": rank_result.ranked_indices,
+                "scores": rank_result.scores or [],
+                "gt_idx": gt_idx
+            })
         
-        return all_metrics
+        return all_results
     
     def _evaluate_parallel(
         self,
@@ -265,7 +294,7 @@ class Evaluator:
         candidate_docs: List[Document],
         rank_kwargs: Dict[str, Any],
         metric_kwargs: Dict[str, Any]
-    ) -> List[Dict[str, float]]:
+    ) -> List[Dict[str, Any]]:
         """Evaluate queries in parallel across multiple GPUs."""
         num_workers = min(self.num_gpus, len(eval_samples))
         
@@ -287,7 +316,7 @@ class Evaluator:
             ))
         
         # Execute in parallel
-        all_metrics = [None] * len(eval_samples)
+        all_results = [None] * len(eval_samples)
         
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = {
@@ -296,10 +325,10 @@ class Evaluator:
             }
             
             for future in tqdm(as_completed(futures), total=len(futures), desc="Evaluating"):
-                query_idx, metrics = future.result()
-                all_metrics[query_idx] = metrics
+                query_idx, result = future.result()
+                all_results[query_idx] = result
         
-        return all_metrics
+        return all_results
     
     def _load_eval_data(
         self,
