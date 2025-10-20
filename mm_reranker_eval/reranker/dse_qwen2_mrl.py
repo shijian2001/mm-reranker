@@ -60,18 +60,32 @@ class DseQwen2Mrl(BaseReranker):
         )
         self.processor.tokenizer.padding_side = "left"
 
-        # Load model using cached file to avoid hanging
+        # Load model using cached file to avoid hanging (must be pytorch_model.bin)
         model_file = cached_file(self.model_name, "pytorch_model.bin")
         state_dict = torch.load(model_file, weights_only=True)
 
+        # 🔥 Key mapping: fix weight key names
+        mapped_state_dict = {}
+        for key, value in state_dict.items():
+            if key.startswith('visual.'):
+                # visual.* -> model.visual.*
+                new_key = f"model.{key}"
+            elif key.startswith('model.') and not key.startswith('model.visual.'):
+                # model.* -> model.language_model.*
+                new_key = key.replace('model.', 'model.language_model.')
+            else:
+                new_key = key
+            mapped_state_dict[new_key] = value
+
         config = AutoConfig.from_pretrained(self.model_name)
         self.model = Qwen2VLForConditionalGeneration(config)
-        self.model.load_state_dict(state_dict, strict=True, assign=False)
+
+        self.model.load_state_dict(mapped_state_dict, strict=True, assign=False)
 
         # Move to device and set to eval mode
         self.model = self.model.to(self.device, dtype=torch.bfloat16).eval()
         self.model.padding_side = "left"
-    
+
     def _get_embedding(self, last_hidden_state: torch.Tensor) -> torch.Tensor:
         """Extract and normalize embeddings from hidden states."""
         reps = last_hidden_state[:, -1, :self.embedding_dim]
