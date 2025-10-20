@@ -65,19 +65,19 @@ class BgeVlMllmReranker(BaseReranker):
             result["images"] = item.image
         
         return result
-    
+
     def _compute_scores(
-        self,
-        query_str: dict,
-        doc_strs: List[dict],
-        query_type: str,
-        doc_type: str,
-        instruction: str = None,
-        **kwargs
+            self,
+            query_str: dict,
+            doc_strs: List[dict],
+            query_type: str,
+            doc_type: str,
+            instruction: str = None,
+            **kwargs
     ) -> List[float]:
         """
         Compute scores using BGE-VL-MLLM embeddings.
-        
+
         Args:
             query_str: Formatted query dict with 'text' and 'images'
             doc_strs: List of formatted document dicts
@@ -87,42 +87,48 @@ class BgeVlMllmReranker(BaseReranker):
             **kwargs: Additional arguments
         """
         task_instruction = instruction if instruction is not None else self.instruction
-        
+
         with torch.no_grad():
-            # Process query - only pass non-None values
+            # Process query - only pass non-empty values
             query_kwargs = {k: v for k, v in {
                 "text": query_str["text"],
                 "images": query_str["images"],
                 "task_instruction": task_instruction
-            }.items() if v is not None}
+            }.items() if v}  # Changed: v instead of v is not None
             query_inputs = self.model.data_process(q_or_c="q", **query_kwargs)
-            
-            # Process candidates - only pass non-None values
-            has_text = any(d["text"] is not None for d in doc_strs)
-            has_images = any(d["images"] is not None for d in doc_strs)
-            
+
+            # Process candidates - check for non-empty values
+            has_text = any(d["text"] for d in doc_strs)  # Changed: considers empty strings as False
+            has_images = any(d["images"] for d in doc_strs)
+
             candi_kwargs = {}
-            if has_text:
+            if has_text and not has_images:
+                # Pure text candidates
                 candi_kwargs["text"] = [d["text"] for d in doc_strs]
-            if has_images:
+            elif has_images and not has_text:
+                # Pure image candidates
                 candi_kwargs["images"] = [d["images"] for d in doc_strs]
-            
+            else:
+                # Multimodal candidates
+                candi_kwargs["text"] = [d["text"] for d in doc_strs]
+                candi_kwargs["images"] = [d["images"] for d in doc_strs]
+
             candi_inputs = self.model.data_process(q_or_c="c", **candi_kwargs)
-            
+
             # Get embeddings
             query_embs = self.model(**query_inputs, output_hidden_states=True)[:, -1, :]
             candi_embs = self.model(**candi_inputs, output_hidden_states=True)[:, -1, :]
-            
+
             # Normalize and compute scores
             query_embs = torch.nn.functional.normalize(query_embs, dim=-1)
             candi_embs = torch.nn.functional.normalize(candi_embs, dim=-1)
             scores = torch.matmul(query_embs, candi_embs.T)
-            
+
             # Convert to list
             scores = scores.squeeze(0).cpu().float().tolist()
             if not isinstance(scores, list):
                 scores = [scores]
-        
+
         return scores
     
     def supported_modalities(self) -> Set[tuple]:
