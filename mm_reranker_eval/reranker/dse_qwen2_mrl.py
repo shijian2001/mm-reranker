@@ -60,11 +60,10 @@ class DseQwen2Mrl(BaseReranker):
         
         attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-            self.model_name, 
-            attn_implementation=attn_impl, 
-            torch_dtype=torch.bfloat16,
-            device_map=self.device
-        ).eval()
+            self.model_name,
+            attn_implementation=attn_impl,
+            dtype=torch.bfloat16
+        ).to(self.device).eval()
         self.model.padding_side = "left"
     
     def _get_embedding(self, last_hidden_state: torch.Tensor) -> torch.Tensor:
