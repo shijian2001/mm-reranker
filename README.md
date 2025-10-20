@@ -74,6 +74,14 @@ deactivate
 source scripts/activate_env.sh /path/to/another/env
 ```
 
+## Supported Models
+
+The package currently supports the following reranker models:
+
+- **Jina AI Reranker M0** (`jinaai/jina-reranker-m0`): Cross-encoder based multimodal reranker
+- **Jina CLIP v2** (`jinaai/jina-clip-v2`): Embedding-based CLIP model for retrieval
+- **DSE Qwen2 MRL** (`MrLight/dse-qwen2-2b-mrl-v1`): Qwen2VL-based multimodal embedding model
+
 ## Quick Start
 
 ### 1. Programmatic Usage
@@ -85,6 +93,8 @@ from mm_reranker_eval import MMReranker, Query, Document
 reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
 # Or use Jina CLIP v2 for embedding-based retrieval
 # reranker = MMReranker("jinaai/jina-clip-v2", device="cuda")
+# Or use DSE Qwen2 MRL for Qwen2VL-based retrieval
+# reranker = MMReranker("MrLight/dse-qwen2-2b-mrl-v1", device="cuda")
 
 # Or use a local model path (type auto-detected from directory name or config.json)
 # reranker = MMReranker("/path/to/local/model", device="cuda")
