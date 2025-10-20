@@ -47,6 +47,8 @@ results/
 images/
 mbeir_images/
 
+test.py
+
 # Logs
 *.log
 

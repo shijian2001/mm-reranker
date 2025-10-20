@@ -30,8 +30,12 @@ pip install flash-attn
 ```python
 from mm_reranker_eval import MMReranker, Query, Document
 
-# Initialize reranker
+# Initialize reranker with remote model name
 reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
+
+# Or use a local model path (type auto-detected from directory name or config.json)
+# reranker = MMReranker("/path/to/local/model", device="cuda")
+# reranker = MMReranker("./models/my-model", device="cuda")
 
 # Create query and documents
 query = Query(text="slm markdown")
@@ -57,7 +61,8 @@ mmranker create-config -o my_eval.yaml
 Edit the configuration file:
 ```yaml
 model:
-  name: jinaai/jina-reranker-m0
+  # Remote model name or local path (auto-detected)
+  name: jinaai/jina-reranker-m0  # or /path/to/model
   device: cuda
   num_gpus: 2
   use_flash_attention: true
@@ -134,6 +139,30 @@ mm_reranker_eval/
 └── cli.py                # Command-line interface
 ```
 
+## Local Model Support
+
+The package supports both remote models (e.g., from HuggingFace) and local model paths with **automatic type detection**.
+
+### Using Local Models
+
+```python
+# Download and save a model locally first
+from transformers import AutoModel
+model = AutoModel.from_pretrained("jinaai/jina-reranker-m0", trust_remote_code=True)
+model.save_pretrained("./models/my-model")
+
+# Then use the local path - model type is automatically detected
+from mm_reranker_eval import MMReranker
+reranker = MMReranker("./models/my-model", device="cuda")
+```
+
+### How Auto-Detection Works
+
+For local paths, the model type is detected from:
+1. **Directory name patterns** - e.g., directories containing "jina" are recognized as Jina models
+2. **Config files** - reads `config.json` to identify model from `model_type`, `_name_or_path`, or `architectures`
+3. **Registry patterns** - checks against registered model patterns
+
 ## Extending the Package
 
 ### Adding a New Model
@@ -157,11 +186,14 @@ class MyReranker(BaseReranker):
         image = frozenset([Modality.IMAGE])
         return {(text, image), (image, text)}
 
-# Register the model
-register_reranker("my-model-name", MyReranker)
+# Register the model (with optional pattern for auto-detection)
+register_reranker("my-model-name", MyReranker, pattern="mymodel")
 
 # Now you can use it
 reranker = MMReranker("my-model-name")
+
+# Local paths with "mymodel" in name will also auto-detect
+reranker = MMReranker("./models/mymodel-v1")  # Auto-detected!
 ```
 
 ### Adding New Metrics

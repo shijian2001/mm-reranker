@@ -5,13 +5,24 @@ from mm_reranker_eval import MMReranker, Query, Document
 def main():
     """Demonstrate basic usage of the package."""
     
-    # Initialize reranker
+    # Initialize reranker with remote model name
     print("Initializing reranker...")
     reranker = MMReranker(
         model_name="jinaai/jina-reranker-m0",
         device="cuda",
         use_flash_attention=True
     )
+    
+    # Or use a local model path (model type auto-detected):
+    # reranker = MMReranker(
+    #     model_name="/path/to/local/model",
+    #     device="cuda",
+    #     use_flash_attention=True
+    # )
+    # reranker = MMReranker(
+    #     model_name="./models/my-model",
+    #     device="cuda"
+    # )
     
     # Example 1: Text to Image
     print("\n=== Example 1: Text to Image ===")

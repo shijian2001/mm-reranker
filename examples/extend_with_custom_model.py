@@ -80,7 +80,13 @@ def main():
     """Demonstrate custom model registration and usage."""
     
     # Register your custom reranker
+    # Option 1: Register for specific model name
     register_reranker("my-custom-model", CustomReranker)
+    
+    # Option 2: Register with pattern for auto-detection of local paths
+    register_reranker("my-custom-model-v2", CustomReranker, pattern="mycustom")
+    # Now any local path with "mycustom" in name will auto-detect this reranker:
+    # MMReranker("./models/mycustom-finetuned") -> uses CustomReranker
     
     # Now you can use it with the MMReranker factory
     reranker = MMReranker("my-custom-model", device="cuda")
@@ -98,6 +104,8 @@ def main():
     print(f"Scores: {result.scores}")
     
     print("\nCustom model registration successful!")
+    print("\nWith pattern registration, you can now use:")
+    print("  reranker = MMReranker('./models/mycustom-v1', device='cuda')")
 
 
 if __name__ == "__main__":

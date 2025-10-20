@@ -1,7 +1,12 @@
 # Example configuration for mm_reranker_eval
 
 model:
-  # Model name (required)
+  # Model name or path (required)
+  # Can be:
+  #   - Remote model name: jinaai/jina-reranker-m0
+  #   - Absolute path: /path/to/local/model
+  #   - Relative path: ./models/my-model
+  # For local paths, model type is auto-detected from directory name or config.json
   name: jinaai/jina-reranker-m0
   
   # Device: 'cuda' or 'cpu' (default: cuda)
