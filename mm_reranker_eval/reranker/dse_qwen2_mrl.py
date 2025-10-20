@@ -61,25 +61,12 @@ class DseQwen2Mrl(BaseReranker):
         self.processor.tokenizer.padding_side = "left"
 
         # Load model using cached file to avoid hanging
-        try:
-            # Load from cached file (faster if already downloaded)
-            model_file = cached_file(self.model_name, "pytorch_model.bin")
-            state_dict = torch.load(model_file, weights_only=True, map_location='cpu')
+        model_file = cached_file(self.model_name, "pytorch_model.bin")
+        state_dict = torch.load(model_file, weights_only=True, map_location='cpu')
 
-            config = AutoConfig.from_pretrained(self.model_name)
-            self.model = Qwen2VLForConditionalGeneration(config)
-            self.model.load_state_dict(state_dict, strict=True, assign=False)
-
-        except Exception as e:
-            # Fallback to standard from_pretrained
-            print(f"Warning: Cached file loading failed, falling back to from_pretrained...")
-            attn_impl = "flash_attention_2" if self.use_flash_attention else "eager"
-            self.model = Qwen2VLForConditionalGeneration.from_pretrained(
-                self.model_name,
-                attn_implementation=attn_impl,
-                torch_dtype=torch.bfloat16,
-                low_cpu_mem_usage=True
-            )
+        config = AutoConfig.from_pretrained(self.model_name)
+        self.model = Qwen2VLForConditionalGeneration(config)
+        self.model.load_state_dict(state_dict, strict=True, assign=False)
 
         # Move to device and set to eval mode
         self.model = self.model.to(self.device, dtype=torch.bfloat16).eval()
