@@ -37,7 +37,6 @@ class BgeVlMllmReranker(BaseReranker):
     def _load_model(self) -> None:
         """Load the BGE-VL-MLLM model."""
         from transformers import AutoModel
-        import os
 
         self.model = AutoModel.from_pretrained(
             self.model_name,
@@ -47,14 +46,9 @@ class BgeVlMllmReranker(BaseReranker):
         self.model.to(self.device)
         self.model.eval()
 
-        # Set processor - use HF model ID if local path
-        processor_name = self.model_name
-        if os.path.exists(self.model_name) or os.path.isdir(self.model_name):
-            # Local path detected, use default HF model ID for processor
-            processor_name = "BAAI/BGE-VL-MLLM-S1"
-
+        # Set processor
         with torch.no_grad():
-            self.model.set_processor(processor_name)
+            self.model.set_processor(self.model_name)
     
     def _format(self, item: Query | Document) -> dict:
         """
@@ -83,48 +77,38 @@ class BgeVlMllmReranker(BaseReranker):
     ) -> List[float]:
         """
         Compute scores using BGE-VL-MLLM embeddings.
+
+        Args:
+            query_str: Formatted query dict with 'text' and 'images'
+            doc_strs: List of formatted document dicts
+            query_type: Query type (not used by BGE-VL-MLLM)
+            doc_type: Document type (not used by BGE-VL-MLLM)
+            instruction: Task instruction for retrieval
+            **kwargs: Additional arguments
         """
         task_instruction = instruction if instruction is not None else self.instruction
 
         with torch.no_grad():
-            # Process query - only pass non-empty values
+            # Process query - only pass non-None values
             query_kwargs = {k: v for k, v in {
                 "text": query_str["text"],
                 "images": query_str["images"],
                 "task_instruction": task_instruction
-            }.items() if v}
-
-            print(f"[DEBUG] Query kwargs: {query_kwargs}")  # DEBUG
+            }.items() if v is not None}
             query_inputs = self.model.data_process(q_or_c="q", **query_kwargs)
 
-            # Process candidates - check for non-empty values
-            has_text = any(d["text"] for d in doc_strs)
-            has_images = any(d["images"] for d in doc_strs)
-
-            print(f"[DEBUG] has_text={has_text}, has_images={has_images}")  # DEBUG
-            print(f"[DEBUG] First 3 doc_strs: {doc_strs[:3]}")  # DEBUG
+            # Process candidates
+            has_text = any(d["text"] is not None for d in doc_strs)
+            has_images = any(d["images"] is not None for d in doc_strs)
 
             candi_kwargs = {}
             if has_text and not has_images:
-                # Pure text candidates
                 candi_kwargs["text"] = [d["text"] for d in doc_strs]
             elif has_images and not has_text:
-                # Pure image candidates
                 candi_kwargs["images"] = [d["images"] for d in doc_strs]
             else:
-                # Multimodal candidates
                 candi_kwargs["text"] = [d["text"] for d in doc_strs]
                 candi_kwargs["images"] = [d["images"] for d in doc_strs]
-
-            print(f"[DEBUG] Candi kwargs keys: {candi_kwargs.keys()}")  # DEBUG
-            if "images" in candi_kwargs:
-                print(f"[DEBUG] First 2 images: {candi_kwargs['images'][:2]}")  # DEBUG
-            if "text" in candi_kwargs:
-                print(f"[DEBUG] First 2 texts: {candi_kwargs['text'][:2]}")  # DEBUG
-
-            # Also check processor configuration
-            print(
-                f"[DEBUG] Processor patch_size: {getattr(self.model.processor.image_processor, 'patch_size', 'N/A')}")  # DEBUG
 
             candi_inputs = self.model.data_process(q_or_c="c", **candi_kwargs)
 
