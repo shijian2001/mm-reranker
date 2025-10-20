@@ -55,13 +55,13 @@ def create_sample_data():
     return data_dir
 
 
-def load_candidates(path: str):
+def load_candidates(path: str, base_dir: str = None):
     """Load candidate documents from JSONL file."""
     docs = []
     with open(path, "r") as f:
         for line in f:
             data = json.loads(line)
-            doc = Document.from_raw(data)
+            doc = Document.from_raw(data, base_dir=base_dir)
             docs.append(doc)
     return docs
 
@@ -82,8 +82,9 @@ def main():
         use_flash_attention=True
     )
     
-    # Load candidates
-    candidates = load_candidates(str(data_dir / "candidates.jsonl"))
+    # Load candidates (with base_dir for image paths)
+    base_dir = str(data_dir)  # Use data directory as base for images
+    candidates = load_candidates(str(data_dir / "candidates.jsonl"), base_dir=base_dir)
     
     # Run evaluation
     print("\nRunning evaluation...")
@@ -93,7 +94,8 @@ def main():
         output_dir="results/example",
         recall_k=[1, 3, 5],
         max_queries=3,
-        save_per_query=True
+        save_per_query=True,
+        base_dir=base_dir  # Pass base_dir for eval data too
     )
     
     print("\nEvaluation completed!")

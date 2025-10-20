@@ -30,6 +30,10 @@ data:
   
   # Maximum number of queries to evaluate (null = all)
   max_queries: null
+  
+  # Base directory for image/video paths (optional)
+  # If provided, relative paths in JSONL will be resolved relative to this directory
+  base_dir: null  # e.g., "/path/to/images" or "./data/images"
 
 metrics:
   # List of K values for Recall@K

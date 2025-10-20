@@ -2,17 +2,18 @@
 
 import json
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Optional
 
 from mm_reranker_eval.data.types import Document, EvalSample
 
 
-def load_documents(path: Union[str, Path]) -> List[Document]:
+def load_documents(path: Union[str, Path], base_dir: Optional[str] = None) -> List[Document]:
     """
     Load documents from JSONL file.
     
     Args:
         path: Path to JSONL file
+        base_dir: Base directory to prepend to image/video paths
         
     Returns:
         List of Document objects
@@ -28,19 +29,20 @@ def load_documents(path: Union[str, Path]) -> List[Document]:
         for line in f:
             if line.strip():
                 data = json.loads(line)
-                doc = Document.from_raw(data)
+                doc = Document.from_raw(data, base_dir=base_dir)
                 documents.append(doc)
     
     return documents
 
 
-def load_eval_samples(path: Union[str, Path], max_samples: int = None) -> List[EvalSample]:
+def load_eval_samples(path: Union[str, Path], max_samples: int = None, base_dir: Optional[str] = None) -> List[EvalSample]:
     """
     Load evaluation samples from JSONL file.
     
     Args:
         path: Path to JSONL file
         max_samples: Maximum number of samples to load (None = all)
+        base_dir: Base directory to prepend to image/video paths
         
     Returns:
         List of EvalSample objects
@@ -54,7 +56,7 @@ def load_eval_samples(path: Union[str, Path], max_samples: int = None) -> List[E
             
             if line.strip():
                 data = json.loads(line)
-                sample = EvalSample.from_json(data)
+                sample = EvalSample.from_json(data, base_dir=base_dir)
                 samples.append(sample)
     
     return samples

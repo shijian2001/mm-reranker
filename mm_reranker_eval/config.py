@@ -22,6 +22,7 @@ class DataConfig:
     eval_data_path: str
     candidate_docs_path: str
     max_queries: Optional[int] = None
+    base_dir: Optional[str] = None
 
 
 @dataclass
@@ -104,7 +105,8 @@ class EvalConfig:
             data=DataConfig(
                 eval_data_path=data_cfg.get("eval_data_path"),
                 candidate_docs_path=data_cfg.get("candidate_docs_path"),
-                max_queries=data_cfg.get("max_queries")
+                max_queries=data_cfg.get("max_queries"),
+                base_dir=data_cfg.get("base_dir")
             ),
             metrics=MetricsConfig(
                 recall_k=metrics_cfg.get("recall_k", [1, 3, 5, 7, 10]),
@@ -133,7 +135,8 @@ class EvalConfig:
             "data": {
                 "eval_data_path": self.data.eval_data_path,
                 "candidate_docs_path": self.data.candidate_docs_path,
-                "max_queries": self.data.max_queries
+                "max_queries": self.data.max_queries,
+                "base_dir": self.data.base_dir
             },
             "metrics": {
                 "recall_k": self.metrics.recall_k,

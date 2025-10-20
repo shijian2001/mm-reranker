@@ -129,7 +129,8 @@ class Evaluator:
         ndcg_k: Optional[List[int]] = None,
         max_queries: Optional[int] = None,
         rank_kwargs: Optional[Dict[str, Any]] = None,
-        save_per_query: bool = False
+        save_per_query: bool = False,
+        base_dir: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Evaluate reranker on a dataset.
@@ -148,7 +149,7 @@ class Evaluator:
             Dictionary with aggregated metrics and metadata
         """
         # Load evaluation data
-        eval_samples = self._load_eval_data(eval_data_path, max_queries)
+        eval_samples = self._load_eval_data(eval_data_path, max_queries, base_dir)
         logger.info(f"Loaded {len(eval_samples)} evaluation samples")
         
         # Prepare metric kwargs
@@ -303,7 +304,8 @@ class Evaluator:
     def _load_eval_data(
         self,
         data_path: str,
-        max_samples: Optional[int] = None
+        max_samples: Optional[int] = None,
+        base_dir: Optional[str] = None
     ) -> List[EvalSample]:
         """Load evaluation data from JSONL file."""
         samples = []
@@ -314,7 +316,7 @@ class Evaluator:
                     break
                 
                 data = json.loads(line)
-                sample = EvalSample.from_json(data)
+                sample = EvalSample.from_json(data, base_dir=base_dir)
                 samples.append(sample)
         
         return samples

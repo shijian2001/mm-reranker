@@ -63,6 +63,24 @@ def main():
     # result = reranker.rank(query, documents)
     # print(f"Ranked indices: {result.ranked_indices}")
     
+    # Example 4: Using base_dir for relative paths
+    print("\n=== Example 4: Relative Paths with base_dir ===")
+    base_dir = "/path/to/images"  # Your image directory
+    
+    # Create documents with relative paths
+    query_with_base = Query.from_raw("relative/path/query.jpg", base_dir=base_dir)
+    docs_with_base = [
+        Document.from_raw({"image": "img1.jpg"}, base_dir=base_dir),
+        Document.from_raw({"image": "img2.jpg"}, base_dir=base_dir),
+    ]
+    
+    print(f"Query image path: {query_with_base.image}")
+    print(f"Document image paths: {[doc.image for doc in docs_with_base]}")
+    
+    # Note: This will work if you have actual image files
+    # result = reranker.rank(query_with_base, docs_with_base)
+    # print(f"Ranked indices: {result.ranked_indices}")
+    
     print("\nBasic usage examples completed!")
 
 

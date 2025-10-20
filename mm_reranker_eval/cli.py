@@ -40,13 +40,17 @@ def load_candidate_docs(path: str) -> list[Document]:
         {"text": "some text"}
         {"image": "path/to/image.jpg"}
         {"text": "caption", "image": "path/to/image.jpg"}
+        
+        # With base_dir, relative paths are resolved:
+        # base_dir: "/data/images"
+        # {"image": "img1.jpg"} -> "/data/images/img1.jpg"
     """
     docs = []
     
     with open(path, "r") as f:
         for line in f:
             data = json.loads(line)
-            doc = Document.from_raw(data)
+            doc = Document.from_raw(data, base_dir=base_dir)
             docs.append(doc)
     
     return docs
@@ -70,7 +74,7 @@ def eval_command(args: argparse.Namespace) -> int:
         config.validate()
         
         # Load candidate documents
-        candidate_docs = load_candidate_docs(config.data.candidate_docs_path)
+        candidate_docs = load_candidate_docs(config.data.candidate_docs_path, config.data.base_dir)
         logging.info(f"Loaded {len(candidate_docs)} candidate documents")
         
         # Initialize evaluator
@@ -91,7 +95,8 @@ def eval_command(args: argparse.Namespace) -> int:
             ndcg_k=config.metrics.ndcg_k,
             max_queries=config.data.max_queries,
             rank_kwargs=config.rank_kwargs,
-            save_per_query=config.save_per_query
+            save_per_query=config.save_per_query,
+            base_dir=config.data.base_dir
         )
         
         logging.info("Evaluation completed successfully")
