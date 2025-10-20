@@ -39,22 +39,32 @@ source scripts/activate_env.sh /your-path/envs/mm-reranker/dev
 
 ```bash
 # Basic installation
-uv pip install -e .
+uv sync --active
 
 # With flash attention (recommended for better performance)
-uv pip install -e '.[flash-attention]'
+uv sync --active --extra flash-attention
 
 # With development tools
-uv pip install -e '.[dev]'
+uv sync --active --extra dev
+
+# or
+uv sync --active --extra flash-attention --extra dev
 ```
 
-### 5. Deactivate environment
+### 5. Add and remove package
+
+```bash
+uv add --active [package-name]
+uv remove --active [package-name]
+```
+
+### 6. Deactivate environment
 
 ```bash
 deactivate
 ```
 
-### 6. Switch to different environment
+### 7. Switch to different environment
 
 ```bash
 # Deactivate current environment
