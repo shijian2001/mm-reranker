@@ -100,6 +100,7 @@ The package currently supports the following reranker models:
 - **GME-Qwen2-VL** (`Alibaba-NLP/gme-Qwen2-VL-7B-Instruct`): Alibaba's General Multimodal Embedding model based on Qwen2-VL
 - **ColQwen2** (`vidore/colqwen2-v1.0`): ColPali-based vision-language model for document retrieval using multi-vector embeddings
 - **MonoQwen2-VL** (`lightonai/MonoQwen2-VL-v0.1`): Pointwise reranker based on Qwen2-VL-2B-Instruct that uses True/False generation for relevance scoring (requires `peft` for LoRA adapter support)
+- **GLM-4.1V-9B-Thinking** (`THUDM/GLM-4.1V-9B-Thinking` or `zai-org/GLM-4.1V-9B-Thinking`): Native thinking VLM with 3 scoring modes: `logits_pyes` (P(Yes) from token logits, fast), `generative_ranking` (generate ranking sequence, interpretable), `listwise_scores` (generate score list 0-1, fine-grained)
 
 ## Quick Start
 
@@ -117,6 +118,7 @@ reranker = MMReranker("jinaai/jina-reranker-m0", device="cuda")
 # reranker = MMReranker("Alibaba-NLP/gme-Qwen2-VL-7B-Instruct", device="cuda")  # GME-Qwen2-VL
 # reranker = MMReranker("vidore/colqwen2-v1.0", device="cuda")  # ColQwen2
 # reranker = MMReranker("lightonai/MonoQwen2-VL-v0.1", device="cuda")  # MonoQwen2-VL
+# reranker = MMReranker("THUDM/GLM-4.1V-9B-Thinking", device="cuda", scoring_mode="logits_pyes")  # GLM4V Thinking
 
 # Or use a local model path (type auto-detected from directory name or config.json)
 # reranker = MMReranker("/path/to/local/model", device="cuda")

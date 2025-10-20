@@ -11,6 +11,7 @@ from mm_reranker_eval.reranker.bge_vl_mllm import BgeVlMllmReranker
 from mm_reranker_eval.reranker.gme_qwen2_vl import GmeQwen2VL
 from mm_reranker_eval.reranker.colqwen2 import ColQwen2Reranker
 from mm_reranker_eval.reranker.mono_qwen2_vl import MonoQwen2VL
+from mm_reranker_eval.reranker.glm4v_thinking import GLM4VThinkingReranker
 
 
 # Registry mapping model names/patterns to reranker classes
@@ -22,6 +23,8 @@ RERANKER_REGISTRY = {
     "Alibaba-NLP/gme-Qwen2-VL-7B-Instruct": GmeQwen2VL,
     "vidore/colqwen2-v1.0": ColQwen2Reranker,
     "lightonai/MonoQwen2-VL-v0.1": MonoQwen2VL,
+    "THUDM/GLM-4.1V-9B-Thinking": GLM4VThinkingReranker,
+    "zai-org/GLM-4.1V-9B-Thinking": GLM4VThinkingReranker,
 }
 
 # Registry for model type detection patterns
@@ -34,6 +37,8 @@ MODEL_TYPE_PATTERNS = {
     "gme-qwen2-vl": GmeQwen2VL,
     "colqwen2": ColQwen2Reranker,
     "monoqwen2-vl": MonoQwen2VL,
+    "glm-4.1v": GLM4VThinkingReranker,
+    "glm4v": GLM4VThinkingReranker,
 }
 
 

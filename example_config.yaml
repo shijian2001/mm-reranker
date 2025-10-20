@@ -59,3 +59,46 @@ rank_kwargs:
 # Whether to save per-query results
 save_per_query: false
 
+# =============================================================================
+# Alternative Model Configurations (Examples)
+# =============================================================================
+
+# --- GLM-4.1V-9B-Thinking Reranker ---
+# Supports three scoring modes: logits_pyes, generative_ranking, listwise_scores
+#
+# model:
+#   name: THUDM/GLM-4.1V-9B-Thinking
+#   # or: zai-org/GLM-4.1V-9B-Thinking
+#   device: cuda
+#   kwargs:
+#     scoring_mode: logits_pyes  # Options: logits_pyes, generative_ranking, listwise_scores
+#     torch_dtype: bfloat16      # bfloat16 recommended for efficiency
+#     max_new_tokens: 512        # For generative modes (generative_ranking, listwise_scores)
+#
+# Scoring modes explained:
+#   - logits_pyes: Extract P(Yes) from Yes/No token logits (fast, efficient, similar to MonoQwen2-VL)
+#   - generative_ranking: Generate ranking sequence like "1, 3, 2" (interpretable, flexible)
+#   - listwise_scores: Generate score list like "0.95, 0.72, 0.83" (fine-grained control)
+
+# --- MonoQwen2-VL Reranker ---
+# model:
+#   name: lightonai/MonoQwen2-VL-v0.1
+#   device: cuda
+#   kwargs:
+#     torch_dtype: bfloat16
+#     attn_implementation: flash_attention_2
+
+# --- BGE-VL-MLLM Reranker ---
+# model:
+#   name: BAAI/BGE-VL-MLLM-S1
+#   device: cuda
+# rank_kwargs:
+#   instruction: "Retrieve relevant documents for the query."
+
+# --- Jina CLIP v2 ---
+# model:
+#   name: jinaai/jina-clip-v2
+#   device: cuda
+#   kwargs:
+#     truncate_dim: 512  # Matryoshka dimension (None for full 1024-dim)
+
