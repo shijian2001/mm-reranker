@@ -42,13 +42,13 @@ source scripts/activate_env.sh /your-path/envs/mm-reranker/dev
 uv sync --active
 
 # With flash attention (recommended for better performance)
-uv sync --active --extra flash-attention
+uv sync --active --no-build-isolation --extra flash-attention
 
 # With development tools
 uv sync --active --extra dev
 
 # or
-uv sync --active --extra flash-attention --extra dev
+uv sync --active --no-build-isolation --extra flash-attention --extra dev
 ```
 
 ### 5. Add and remove package
