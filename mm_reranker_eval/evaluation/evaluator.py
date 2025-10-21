@@ -4,6 +4,7 @@ import os
 import json
 import logging
 import tempfile
+import pickle
 import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
@@ -67,64 +68,59 @@ def _evaluate_single_query(
     }
 
 
-def _evaluate_query_batch(
+def _gpu_worker(
     gpu_id: int,
-    worker_id: int,
-    query_batch: List[Tuple[int, EvalSample]],
-    candidate_docs: List[Document],
+    query_batch_file: str,
+    candidate_docs_file: str,
     model_name: str,
     model_kwargs: Dict[str, Any],
     rank_kwargs: Dict[str, Any],
     metric_kwargs: Dict[str, Any],
-    temp_dir: str,
-    progress_queue: Optional[mp.Queue] = None
-) -> str:
+    output_file: str
+):
     """
-    Evaluate a batch of queries on an isolated GPU (worker process function).
+    Worker function that runs on a single GPU.
     
-    This function runs in a separate process. It sets CUDA_VISIBLE_DEVICES first
-    to isolate the GPU, then loads the model once and processes all queries.
+    This function loads a model on the specified GPU, processes its assigned
+    batch of queries, and saves results to a file.
     
     Args:
-        gpu_id: Physical GPU ID to isolate
-        worker_id: Worker ID for identification
-        query_batch: List of (query_idx, eval_sample) tuples to evaluate
-        candidate_docs: List of candidate documents (including ground truth)
+        gpu_id: GPU device ID (0, 1, 2, ...)
+        query_batch_file: Path to pickle file with query batch
+        candidate_docs_file: Path to pickle file with candidate documents
         model_name: Model name for initialization
         model_kwargs: Model initialization kwargs
         rank_kwargs: Ranking kwargs
         metric_kwargs: Metric computation kwargs
-        temp_dir: Directory to save temporary results
-        progress_queue: Optional queue for progress updates
-        
-    Returns:
-        Path to temporary result file
+        output_file: Path to save results
     """
-    # CRITICAL: Set GPU isolation BEFORE any CUDA operations
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+    # Load data from shared files
+    with open(query_batch_file, 'rb') as f:
+        query_batch = pickle.load(f)
     
-    # Load model once on the isolated GPU
-    reranker = MMReranker(model_name, device="cuda:0", **model_kwargs)
+    with open(candidate_docs_file, 'rb') as f:
+        candidate_docs = pickle.load(f)
     
-    # Process queries with progress tracking
+    # Load model directly on the specified GPU
+    device = f"cuda:{gpu_id}"
+    reranker = MMReranker(model_name, device=device, **model_kwargs)
+    
+    # Process all queries in this batch
     results = []
-    total = len(query_batch)
-    for idx, (query_idx, eval_sample) in enumerate(query_batch):
+    for query_idx, eval_sample in tqdm(
+        query_batch,
+        desc=f"GPU {gpu_id}",
+        position=gpu_id,
+        leave=True
+    ):
         result = _evaluate_single_query(
             reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
         )
         results.append((query_idx, result))
-        
-        # Send progress update
-        if progress_queue is not None:
-            progress_queue.put((worker_id, gpu_id, idx + 1, total))
     
-    # Save results to temporary file
-    temp_file = Path(temp_dir) / f"worker_{worker_id}.json"
-    with open(temp_file, "w") as f:
-        json.dump(results, f)
-    
-    return str(temp_file)
+    # Save results to file
+    with open(output_file, 'wb') as f:
+        pickle.dump(results, f)
 
 
 def _is_same_document(doc1: Document, doc2: Document) -> bool:
@@ -163,16 +159,9 @@ class Evaluator:
         self.device_type = device
         self.model_kwargs = model_kwargs
         
-        # Determine available GPUs
-        if device == "cuda" and num_gpus is None:
-            cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-            if cuda_visible:
-                self.num_gpus = len(cuda_visible.split(","))
-            else:
-                import torch
-                self.num_gpus = torch.cuda.device_count()
-        elif device == "cuda":
-            self.num_gpus = num_gpus
+        # Set number of GPUs to use
+        if device == "cuda":
+            self.num_gpus = num_gpus if num_gpus is not None else 8
         else:
             self.num_gpus = 0
         
@@ -326,98 +315,82 @@ class Evaluator:
         """
         Evaluate queries in parallel across multiple GPUs.
         
-        Each GPU gets an isolated batch of queries and loads the model exactly once.
-        Uses multiprocessing.Process to ensure proper GPU isolation before CUDA init.
-        Progress is displayed with one tqdm bar per GPU showing query-level progress.
+        Strategy:
+        1. Split data evenly across GPUs
+        2. Save batches and candidate_docs to temporary files
+        3. Spawn one process per GPU, each loads model on its assigned GPU
+        4. Each process saves results to its own file
+        5. Merge results and cleanup
+        
+        This approach ensures one model per GPU with zero inter-process communication.
         """
         num_workers = min(self.num_gpus, len(eval_samples))
         
-        # Split queries evenly across GPUs (handles uneven division)
-        batch_size = (len(eval_samples) + num_workers - 1) // num_workers
-        query_batches = []
-        
-        for worker_id in range(num_workers):
-            start_idx = worker_id * batch_size
-            end_idx = min(start_idx + batch_size, len(eval_samples))
-            
-            if start_idx >= len(eval_samples):
-                break
-            
-            # Create batch with (query_idx, eval_sample) tuples
-            batch = [(i, eval_samples[i]) for i in range(start_idx, end_idx)]
-            query_batches.append((worker_id, batch))
-        
-        # Create temporary directory for worker results
+        # Create temporary directory for all intermediate files
         temp_dir = tempfile.mkdtemp(prefix="mm_reranker_eval_")
         
-        # Create progress queue for real-time updates
-        progress_queue = mp.Queue()
-        
         try:
-            # Launch worker processes (one per GPU with isolated environment)
+            # Save candidate documents to shared file (read by all workers)
+            candidate_docs_file = Path(temp_dir) / "candidates.pkl"
+            with open(candidate_docs_file, 'wb') as f:
+                pickle.dump(candidate_docs, f)
+            
+            # Split queries evenly across GPUs
+            batch_size = (len(eval_samples) + num_workers - 1) // num_workers
             processes = []
-            for worker_id, batch in query_batches:
+            
+            for gpu_id in range(num_workers):
+                start_idx = gpu_id * batch_size
+                end_idx = min(start_idx + batch_size, len(eval_samples))
+                
+                if start_idx >= len(eval_samples):
+                    break
+                
+                # Create query batch with (query_idx, eval_sample) tuples
+                query_batch = [
+                    (i, eval_samples[i]) 
+                    for i in range(start_idx, end_idx)
+                ]
+                
+                # Save batch to file
+                batch_file = Path(temp_dir) / f"batch_{gpu_id}.pkl"
+                with open(batch_file, 'wb') as f:
+                    pickle.dump(query_batch, f)
+                
+                # Output file for this GPU
+                output_file = Path(temp_dir) / f"results_{gpu_id}.pkl"
+                
+                # Start worker process
                 p = mp.Process(
-                    target=_evaluate_query_batch,
+                    target=_gpu_worker,
                     args=(
-                        worker_id,  # GPU ID = worker ID
-                        worker_id,
-                        batch,
-                        candidate_docs,
+                        gpu_id,
+                        str(batch_file),
+                        str(candidate_docs_file),
                         self.model_name,
                         self.model_kwargs,
                         rank_kwargs,
                         metric_kwargs,
-                        temp_dir,
-                        progress_queue
+                        str(output_file)
                     )
                 )
                 p.start()
-                processes.append(p)
-            
-            # Monitor progress with multiple tqdm bars
-            progress_bars = {}
-            for worker_id, batch in query_batches:
-                pbar = tqdm(
-                    total=len(batch),
-                    desc=f"GPU {worker_id}",
-                    position=worker_id,
-                    leave=True
-                )
-                progress_bars[worker_id] = pbar
-            
-            # Update progress bars as workers report
-            completed_workers = set()
-            while len(completed_workers) < len(query_batches):
-                try:
-                    worker_id, gpu_id, current, total = progress_queue.get(timeout=0.1)
-                    progress_bars[worker_id].n = current
-                    progress_bars[worker_id].refresh()
-                    
-                    if current >= total:
-                        completed_workers.add(worker_id)
-                except:
-                    # Check if any process finished
-                    for idx, p in enumerate(processes):
-                        if not p.is_alive() and idx not in completed_workers:
-                            completed_workers.add(idx)
-            
-            # Close progress bars
-            for pbar in progress_bars.values():
-                pbar.close()
+                processes.append((gpu_id, p, output_file))
             
             # Wait for all processes to complete
-            for p in processes:
+            for gpu_id, p, _ in processes:
                 p.join()
+                if p.exitcode != 0:
+                    logger.error(f"GPU {gpu_id} worker failed with exit code {p.exitcode}")
             
-            # Merge results from temporary files
+            # Merge results from all GPUs
             all_results = [None] * len(eval_samples)
-            for worker_id, _ in query_batches:
-                temp_file = Path(temp_dir) / f"worker_{worker_id}.json"
-                with open(temp_file, "r") as f:
-                    batch_results = json.load(f)
-                    for query_idx, result in batch_results:
-                        all_results[query_idx] = result
+            for gpu_id, _, output_file in processes:
+                if output_file.exists():
+                    with open(output_file, 'rb') as f:
+                        batch_results = pickle.load(f)
+                        for query_idx, result in batch_results:
+                            all_results[query_idx] = result
             
             return all_results
             
