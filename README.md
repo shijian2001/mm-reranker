@@ -366,18 +366,6 @@ results = evaluator.evaluate(...)  # Automatically parallelizes!
 - ✅ Graceful fallback to sequential if Accelerate unavailable
 - ✅ ~8x speedup on 8 GPUs for 1000 queries
 
-**Example output:**
-```
-GPU 0: 100%|██████████| 125/125 [02:15<00:00,  1.08s/it]
-GPU 1: 100%|██████████| 125/125 [02:16<00:00,  1.09s/it]
-GPU 2: 100%|██████████| 125/125 [02:14<00:00,  1.07s/it]
-GPU 3: 100%|██████████| 125/125 [02:17<00:00,  1.10s/it]
-GPU 4: 100%|██████████| 125/125 [02:15<00:00,  1.08s/it]
-GPU 5: 100%|██████████| 125/125 [02:16<00:00,  1.09s/it]
-GPU 6: 100%|██████████| 125/125 [02:14<00:00,  1.07s/it]
-GPU 7: 100%|██████████| 125/125 [02:15<00:00,  1.08s/it]
-```
-
 **Alternative (without Accelerate):**
 ```bash
 # Use specific GPUs via environment variable
