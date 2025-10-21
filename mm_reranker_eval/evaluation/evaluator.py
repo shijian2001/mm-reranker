@@ -1,11 +1,12 @@
 """Evaluator for multimodal reranker models with parallel GPU support."""
 
 import os
+import sys
 import json
 import logging
 import tempfile
 import pickle
-import multiprocessing as mp
+import subprocess
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -17,12 +18,6 @@ from mm_reranker_eval.reranker.factory import MMReranker
 from mm_reranker_eval.reranker.base import BaseReranker
 
 logger = logging.getLogger(__name__)
-
-# Set spawn method for proper multiprocessing isolation
-try:
-    mp.set_start_method('spawn', force=True)
-except RuntimeError:
-    pass
 
 
 def _evaluate_single_query(
@@ -74,83 +69,6 @@ def _evaluate_single_query(
     }
 
 
-def _gpu_worker(
-    gpu_id: int,
-    query_batch_file: str,
-    candidate_docs_file: str,
-    model_name: str,
-    model_kwargs: Dict[str, Any],
-    rank_kwargs: Dict[str, Any],
-    metric_kwargs: Dict[str, Any],
-    output_file: str
-):
-    """
-    Worker function that runs on a single GPU.
-    
-    This function loads a model on the specified GPU, processes its assigned
-    batch of queries, and saves results to a file.
-    
-    Args:
-        gpu_id: GPU device ID (0, 1, 2, ...)
-        query_batch_file: Path to pickle file with query batch
-        candidate_docs_file: Path to pickle file with candidate documents
-        model_name: Model name for initialization
-        model_kwargs: Model initialization kwargs
-        rank_kwargs: Ranking kwargs
-        metric_kwargs: Metric computation kwargs
-        output_file: Path to save results
-    """
-    import time
-    
-    start_time = time.time()
-    print(f"[GPU {gpu_id}] ========== Worker started at {time.strftime('%H:%M:%S')} ==========", flush=True)
-    
-    # Load data from shared files
-    t0 = time.time()
-    with open(query_batch_file, 'rb') as f:
-        query_batch = pickle.load(f)
-    
-    with open(candidate_docs_file, 'rb') as f:
-        candidate_docs = pickle.load(f)
-    
-    load_time = time.time() - t0
-    print(f"[GPU {gpu_id}] Loaded {len(query_batch)} queries and {len(candidate_docs)} candidates in {load_time:.1f}s", flush=True)
-    
-    # Load model directly on the specified GPU
-    t1 = time.time()
-    device = f"cuda:{gpu_id}"
-    reranker = MMReranker(model_name, device=device, **model_kwargs)
-    model_time = time.time() - t1
-    print(f"[GPU {gpu_id}] Model loaded in {model_time:.1f}s, starting evaluation", flush=True)
-    
-    # Process all queries in this batch with progress tracking
-    results = []
-    total = len(query_batch)
-    eval_start = time.time()
-    
-    for i, (query_idx, eval_sample) in enumerate(query_batch):
-        result = _evaluate_single_query(
-            reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
-        )
-        results.append((query_idx, result))
-        
-        # Print progress every 10 queries or at first query
-        if (i + 1) % 10 == 0 or i == 0:
-            elapsed = time.time() - eval_start
-            speed = (i + 1) / elapsed if elapsed > 0 else 0
-            eta = (total - i - 1) / speed if speed > 0 else 0
-            print(f"[GPU {gpu_id}] Progress: {i+1}/{total} ({100*(i+1)/total:.1f}%) | "
-                  f"Speed: {speed:.2f} q/s | ETA: {eta/60:.1f}min", flush=True)
-    
-    # Save results to file
-    with open(output_file, 'wb') as f:
-        pickle.dump(results, f)
-    
-    total_time = time.time() - start_time
-    eval_time = time.time() - eval_start
-    avg_speed = total / eval_time if eval_time > 0 else 0
-    print(f"[GPU {gpu_id}] ========== Completed in {total_time/60:.1f}min "
-          f"(eval: {eval_time/60:.1f}min, {avg_speed:.2f} q/s) ==========", flush=True)
 
 
 def _is_same_document(doc1: Document, doc2: Document) -> bool:
@@ -343,16 +261,16 @@ class Evaluator:
         metric_kwargs: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Evaluate queries in parallel across multiple GPUs.
+        Evaluate queries in parallel across multiple GPUs using subprocess.
         
         Strategy:
         1. Split data evenly across GPUs
-        2. Save batches and candidate_docs to temporary files
-        3. Spawn one process per GPU, each loads model on its assigned GPU
-        4. Each process saves results to its own file
-        5. Merge results and cleanup
+        2. Save all data to temporary files
+        3. Launch independent Python processes (one per GPU) via subprocess
+        4. Each process runs with isolated CUDA_VISIBLE_DEVICES
+        5. Merge results from temporary files
         
-        This approach ensures one model per GPU with zero inter-process communication.
+        This approach guarantees true parallelization with zero GPU contention.
         """
         num_workers = min(self.num_gpus, len(eval_samples))
         
@@ -360,16 +278,32 @@ class Evaluator:
         temp_dir = tempfile.mkdtemp(prefix="mm_reranker_eval_")
         
         try:
-            # Save candidate documents to shared file (read by all workers)
+            # Save shared data files
             candidate_docs_file = Path(temp_dir) / "candidates.pkl"
             with open(candidate_docs_file, 'wb') as f:
                 pickle.dump(candidate_docs, f)
+            
+            # Save kwargs to files
+            model_kwargs_file = Path(temp_dir) / "model_kwargs.pkl"
+            with open(model_kwargs_file, 'wb') as f:
+                pickle.dump(self.model_kwargs, f)
+            
+            rank_kwargs_file = Path(temp_dir) / "rank_kwargs.pkl"
+            with open(rank_kwargs_file, 'wb') as f:
+                pickle.dump(rank_kwargs, f)
+            
+            metric_kwargs_file = Path(temp_dir) / "metric_kwargs.pkl"
+            with open(metric_kwargs_file, 'wb') as f:
+                pickle.dump(metric_kwargs, f)
             
             # Split queries evenly across GPUs
             batch_size = (len(eval_samples) + num_workers - 1) // num_workers
             processes = []
             
-            logger.info(f"Starting {num_workers} GPU workers, {batch_size} queries per GPU")
+            logger.info(f"Starting {num_workers} GPU workers via subprocess, {batch_size} queries per GPU")
+            
+            # Get worker script path
+            worker_script = Path(__file__).parent / "_worker.py"
             
             for gpu_id in range(num_workers):
                 start_idx = gpu_id * batch_size
@@ -392,30 +326,42 @@ class Evaluator:
                 # Output file for this GPU
                 output_file = Path(temp_dir) / f"results_{gpu_id}.pkl"
                 
-                # Start worker process
-                p = mp.Process(
-                    target=_gpu_worker,
-                    args=(
-                        gpu_id,
-                        str(batch_file),
-                        str(candidate_docs_file),
-                        self.model_name,
-                        self.model_kwargs,
-                        rank_kwargs,
-                        metric_kwargs,
-                        str(output_file)
-                    )
+                # Prepare command
+                cmd = [
+                    sys.executable,  # Current Python interpreter
+                    str(worker_script),
+                    str(gpu_id),
+                    str(batch_file),
+                    str(candidate_docs_file),
+                    self.model_name,
+                    str(model_kwargs_file),
+                    str(rank_kwargs_file),
+                    str(metric_kwargs_file),
+                    str(output_file)
+                ]
+                
+                # Set environment with isolated GPU
+                env = os.environ.copy()
+                env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+                
+                # Start subprocess
+                p = subprocess.Popen(
+                    cmd,
+                    env=env,
+                    stdout=sys.stdout,
+                    stderr=sys.stderr
                 )
-                p.start()
                 processes.append((gpu_id, p, output_file))
             
             logger.info(f"All {len(processes)} workers started, waiting for completion...")
             
             # Wait for all processes to complete
             for gpu_id, p, _ in processes:
-                p.join()
-                if p.exitcode != 0:
-                    logger.error(f"GPU {gpu_id} worker failed with exit code {p.exitcode}")
+                p.wait()
+                if p.returncode != 0:
+                    logger.error(f"GPU {gpu_id} worker failed with exit code {p.returncode}")
+            
+            logger.info("All workers completed, merging results...")
             
             # Merge results from all GPUs
             all_results = [None] * len(eval_samples)
