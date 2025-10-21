@@ -323,16 +323,18 @@ class Evaluator:
             # Load model on this process's assigned device
             reranker = MMReranker(self.model_name, device=str(device), **self.model_kwargs)
             
-            # Process assigned queries with progress bar (only on main process)
+            # Process assigned queries with progress bar
+            # Each GPU gets its own progress bar at a different position
             from tqdm import tqdm
             process_results = []
             
-            # Create progress bar only on main process
+            # Create progress bar for this GPU
+            # position parameter ensures each GPU's progress bar doesn't overlap
             pbar = tqdm(
                 process_samples,
                 desc=f"GPU {accelerator.process_index}",
-                disable=not accelerator.is_main_process,
-                position=0
+                position=accelerator.process_index,
+                leave=True
             )
             
             for eval_sample in pbar:
