@@ -100,36 +100,57 @@ def _gpu_worker(
         metric_kwargs: Metric computation kwargs
         output_file: Path to save results
     """
-    print(f"[GPU {gpu_id}] Worker started", flush=True)
+    import time
+    
+    start_time = time.time()
+    print(f"[GPU {gpu_id}] ========== Worker started at {time.strftime('%H:%M:%S')} ==========", flush=True)
     
     # Load data from shared files
+    t0 = time.time()
     with open(query_batch_file, 'rb') as f:
         query_batch = pickle.load(f)
     
     with open(candidate_docs_file, 'rb') as f:
         candidate_docs = pickle.load(f)
     
-    print(f"[GPU {gpu_id}] Loaded {len(query_batch)} queries and {len(candidate_docs)} candidates", flush=True)
+    load_time = time.time() - t0
+    print(f"[GPU {gpu_id}] Loaded {len(query_batch)} queries and {len(candidate_docs)} candidates in {load_time:.1f}s", flush=True)
     
     # Load model directly on the specified GPU
+    t1 = time.time()
     device = f"cuda:{gpu_id}"
     reranker = MMReranker(model_name, device=device, **model_kwargs)
+    model_time = time.time() - t1
+    print(f"[GPU {gpu_id}] Model loaded in {model_time:.1f}s, starting evaluation", flush=True)
     
-    print(f"[GPU {gpu_id}] Model loaded, starting evaluation", flush=True)
-    
-    # Process all queries in this batch
+    # Process all queries in this batch with progress tracking
     results = []
-    for query_idx, eval_sample in tqdm(query_batch, desc=f"GPU {gpu_id}"):
+    total = len(query_batch)
+    eval_start = time.time()
+    
+    for i, (query_idx, eval_sample) in enumerate(query_batch):
         result = _evaluate_single_query(
             reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
         )
         results.append((query_idx, result))
+        
+        # Print progress every 10 queries or at first query
+        if (i + 1) % 10 == 0 or i == 0:
+            elapsed = time.time() - eval_start
+            speed = (i + 1) / elapsed if elapsed > 0 else 0
+            eta = (total - i - 1) / speed if speed > 0 else 0
+            print(f"[GPU {gpu_id}] Progress: {i+1}/{total} ({100*(i+1)/total:.1f}%) | "
+                  f"Speed: {speed:.2f} q/s | ETA: {eta/60:.1f}min", flush=True)
     
     # Save results to file
     with open(output_file, 'wb') as f:
         pickle.dump(results, f)
     
-    print(f"[GPU {gpu_id}] Completed and saved results", flush=True)
+    total_time = time.time() - start_time
+    eval_time = time.time() - eval_start
+    avg_speed = total / eval_time if eval_time > 0 else 0
+    print(f"[GPU {gpu_id}] ========== Completed in {total_time/60:.1f}min "
+          f"(eval: {eval_time/60:.1f}min, {avg_speed:.2f} q/s) ==========", flush=True)
 
 
 def _is_same_document(doc1: Document, doc2: Document) -> bool:
