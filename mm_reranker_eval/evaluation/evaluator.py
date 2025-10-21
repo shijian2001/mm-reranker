@@ -4,10 +4,10 @@ import os
 import json
 import logging
 import tempfile
+import multiprocessing as mp
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 
 from mm_reranker_eval.data.types import Query, Document, EvalSample
@@ -68,55 +68,56 @@ def _evaluate_single_query(
 
 
 def _evaluate_query_batch(
+    gpu_id: int,
     worker_id: int,
     query_batch: List[Tuple[int, EvalSample]],
     candidate_docs: List[Document],
     model_name: str,
     model_kwargs: Dict[str, Any],
-    gpu_id: int,
     rank_kwargs: Dict[str, Any],
     metric_kwargs: Dict[str, Any],
-    temp_dir: str
+    temp_dir: str,
+    progress_queue: Optional[mp.Queue] = None
 ) -> str:
     """
-    Evaluate a batch of queries on a single GPU (worker function for parallel processing).
+    Evaluate a batch of queries on an isolated GPU (worker process function).
     
-    This function isolates a GPU for exclusive use, loads the model once, and processes
-    all queries in the batch sequentially. Each worker runs in a separate process.
+    This function runs in a separate process. It sets CUDA_VISIBLE_DEVICES first
+    to isolate the GPU, then loads the model once and processes all queries.
     
     Args:
+        gpu_id: Physical GPU ID to isolate
         worker_id: Worker ID for identification
         query_batch: List of (query_idx, eval_sample) tuples to evaluate
         candidate_docs: List of candidate documents (including ground truth)
         model_name: Model name for initialization
         model_kwargs: Model initialization kwargs
-        gpu_id: Physical GPU ID to use (will be isolated via CUDA_VISIBLE_DEVICES)
         rank_kwargs: Ranking kwargs
         metric_kwargs: Metric computation kwargs
         temp_dir: Directory to save temporary results
+        progress_queue: Optional queue for progress updates
         
     Returns:
         Path to temporary result file
     """
-    # Isolate GPU: set CUDA_VISIBLE_DEVICES to ensure this process only sees one GPU
-    # This prevents multiple models from being loaded on the same physical GPU
+    # CRITICAL: Set GPU isolation BEFORE any CUDA operations
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
     
-    # Load model once on the isolated GPU (always cuda:0 from this process's perspective)
+    # Load model once on the isolated GPU
     reranker = MMReranker(model_name, device="cuda:0", **model_kwargs)
     
-    # Process queries with dedicated progress bar for this GPU
+    # Process queries with progress tracking
     results = []
-    for query_idx, eval_sample in tqdm(
-        query_batch,
-        desc=f"GPU {gpu_id}",
-        position=worker_id,
-        leave=True
-    ):
+    total = len(query_batch)
+    for idx, (query_idx, eval_sample) in enumerate(query_batch):
         result = _evaluate_single_query(
             reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
         )
         results.append((query_idx, result))
+        
+        # Send progress update
+        if progress_queue is not None:
+            progress_queue.put((worker_id, gpu_id, idx + 1, total))
     
     # Save results to temporary file
     temp_file = Path(temp_dir) / f"worker_{worker_id}.json"
@@ -326,8 +327,8 @@ class Evaluator:
         Evaluate queries in parallel across multiple GPUs.
         
         Each GPU gets an isolated batch of queries and loads the model exactly once.
+        Uses multiprocessing.Process to ensure proper GPU isolation before CUDA init.
         Progress is displayed with one tqdm bar per GPU showing query-level progress.
-        Results are merged via temporary files for zero inter-process communication overhead.
         """
         num_workers = min(self.num_gpus, len(eval_samples))
         
@@ -349,31 +350,70 @@ class Evaluator:
         # Create temporary directory for worker results
         temp_dir = tempfile.mkdtemp(prefix="mm_reranker_eval_")
         
+        # Create progress queue for real-time updates
+        progress_queue = mp.Queue()
+        
         try:
-            # Launch workers in parallel (one per GPU, each with isolated CUDA_VISIBLE_DEVICES)
-            with ProcessPoolExecutor(max_workers=len(query_batches)) as executor:
-                futures = [
-                    executor.submit(
-                        _evaluate_query_batch,
+            # Launch worker processes (one per GPU with isolated environment)
+            processes = []
+            for worker_id, batch in query_batches:
+                p = mp.Process(
+                    target=_evaluate_query_batch,
+                    args=(
+                        worker_id,  # GPU ID = worker ID
                         worker_id,
                         batch,
                         candidate_docs,
                         self.model_name,
                         self.model_kwargs,
-                        worker_id,  # GPU ID matches worker ID (0, 1, 2, ...)
                         rank_kwargs,
                         metric_kwargs,
-                        temp_dir
+                        temp_dir,
+                        progress_queue
                     )
-                    for worker_id, batch in query_batches
-                ]
-                
-                # Wait for all workers to complete (progress shown by individual GPU tqdm bars)
-                temp_files = [future.result() for future in futures]
+                )
+                p.start()
+                processes.append(p)
+            
+            # Monitor progress with multiple tqdm bars
+            progress_bars = {}
+            for worker_id, batch in query_batches:
+                pbar = tqdm(
+                    total=len(batch),
+                    desc=f"GPU {worker_id}",
+                    position=worker_id,
+                    leave=True
+                )
+                progress_bars[worker_id] = pbar
+            
+            # Update progress bars as workers report
+            completed_workers = set()
+            while len(completed_workers) < len(query_batches):
+                try:
+                    worker_id, gpu_id, current, total = progress_queue.get(timeout=0.1)
+                    progress_bars[worker_id].n = current
+                    progress_bars[worker_id].refresh()
+                    
+                    if current >= total:
+                        completed_workers.add(worker_id)
+                except:
+                    # Check if any process finished
+                    for idx, p in enumerate(processes):
+                        if not p.is_alive() and idx not in completed_workers:
+                            completed_workers.add(idx)
+            
+            # Close progress bars
+            for pbar in progress_bars.values():
+                pbar.close()
+            
+            # Wait for all processes to complete
+            for p in processes:
+                p.join()
             
             # Merge results from temporary files
             all_results = [None] * len(eval_samples)
-            for temp_file in temp_files:
+            for worker_id, _ in query_batches:
+                temp_file = Path(temp_dir) / f"worker_{worker_id}.json"
                 with open(temp_file, "r") as f:
                     batch_results = json.load(f)
                     for query_idx, result in batch_results:
