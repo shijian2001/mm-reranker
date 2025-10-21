@@ -1,16 +1,10 @@
 """Evaluator for multimodal reranker models with parallel GPU support."""
 
-import os
-import sys
 import json
 import logging
-import tempfile
-import pickle
-import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from datetime import datetime
-from tqdm import tqdm
 
 from mm_reranker_eval.data.types import Query, Document, EvalSample
 from mm_reranker_eval.evaluation.metrics import compute_metrics, aggregate_metrics
@@ -264,6 +258,8 @@ class Evaluator:
         metric_kwargs: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """Evaluate queries sequentially (single GPU or CPU)."""
+        from tqdm import tqdm
+        
         device = f"cuda:0" if self.device_type == "cuda" else "cpu"
         reranker = MMReranker(self.model_name, device=device, **self.model_kwargs)
         
@@ -284,138 +280,74 @@ class Evaluator:
         metric_kwargs: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Evaluate queries in parallel across multiple GPUs using subprocess.
+        Evaluate queries in parallel across multiple GPUs using Accelerate.
         
         Strategy:
-        1. Split data evenly across GPUs
-        2. Save all data to temporary files
-        3. Launch independent Python processes (one per GPU) via subprocess
-        4. Each process runs with isolated CUDA_VISIBLE_DEVICES
-        5. Merge results from temporary files
+        1. Use Accelerate to automatically manage multi-GPU setup
+        2. Each process loads its own model instance
+        3. Data is automatically split across processes
+        4. Results are gathered automatically
         
-        This approach guarantees true parallelization with zero GPU contention.
+        This approach is elegant, minimal, and leverages Accelerate's robust infrastructure.
         """
-        num_workers = min(self.num_gpus, len(eval_samples))
-        
-        # Create temporary directory for all intermediate files
-        temp_dir = tempfile.mkdtemp(prefix="mm_reranker_eval_")
-        
         try:
-            # Save shared data files
-            candidate_docs_file = Path(temp_dir) / "candidates.pkl"
-            with open(candidate_docs_file, 'wb') as f:
-                pickle.dump(candidate_docs, f)
+            from accelerate import Accelerator
+            from accelerate.utils import gather_object
+        except ImportError:
+            logger.error(
+                "Accelerate is required for multi-GPU evaluation. "
+                "Install it with: pip install accelerate"
+            )
+            # Fallback to sequential
+            return self._evaluate_sequential(eval_samples, candidate_docs, rank_kwargs, metric_kwargs)
+        
+        # Check if we're already in an Accelerate context
+        try:
+            accelerator = Accelerator()
+        except Exception as e:
+            logger.warning(f"Failed to initialize Accelerator: {e}. Falling back to sequential evaluation.")
+            return self._evaluate_sequential(eval_samples, candidate_docs, rank_kwargs, metric_kwargs)
+        
+        # Split data across processes
+        with accelerator.split_between_processes(eval_samples, apply_padding=False) as process_samples:
+            # Each process initializes its own model
+            # Accelerate automatically assigns the correct GPU
+            device = accelerator.device
             
-            # Save kwargs to files
-            model_kwargs_file = Path(temp_dir) / "model_kwargs.pkl"
-            with open(model_kwargs_file, 'wb') as f:
-                pickle.dump(self.model_kwargs, f)
-            
-            rank_kwargs_file = Path(temp_dir) / "rank_kwargs.pkl"
-            with open(rank_kwargs_file, 'wb') as f:
-                pickle.dump(rank_kwargs, f)
-            
-            metric_kwargs_file = Path(temp_dir) / "metric_kwargs.pkl"
-            with open(metric_kwargs_file, 'wb') as f:
-                pickle.dump(metric_kwargs, f)
-            
-            # Split queries evenly across GPUs
-            batch_size = (len(eval_samples) + num_workers - 1) // num_workers
-            processes = []
-            
-            logger.info(f"Starting {num_workers} GPU workers via subprocess, {batch_size} queries per GPU")
-            
-            # Get worker script path
-            worker_script = Path(__file__).parent / "_worker.py"
-            
-            for gpu_id in range(num_workers):
-                start_idx = gpu_id * batch_size
-                end_idx = min(start_idx + batch_size, len(eval_samples))
-                
-                if start_idx >= len(eval_samples):
-                    break
-                
-                # Create query batch with (query_idx, eval_sample) tuples
-                query_batch = [
-                    (i, eval_samples[i]) 
-                    for i in range(start_idx, end_idx)
-                ]
-                
-                # Save batch to file
-                batch_file = Path(temp_dir) / f"batch_{gpu_id}.pkl"
-                with open(batch_file, 'wb') as f:
-                    pickle.dump(query_batch, f)
-                
-                # Output file for this GPU
-                output_file = Path(temp_dir) / f"results_{gpu_id}.pkl"
-                
-                # Prepare command
-                cmd = [
-                    sys.executable,  # Current Python interpreter
-                    str(worker_script),
-                    str(gpu_id),
-                    str(batch_file),
-                    str(candidate_docs_file),
-                    self.model_name,
-                    str(model_kwargs_file),
-                    str(rank_kwargs_file),
-                    str(metric_kwargs_file),
-                    str(output_file)
-                ]
-                
-                # Set environment with isolated GPU and Python path
-                env = os.environ.copy()
-                env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
-                
-                # Ensure Python can find mm_reranker_eval module
-                # Add project root to PYTHONPATH
-                project_root = Path(__file__).parent.parent.parent
-                if 'PYTHONPATH' in env:
-                    env['PYTHONPATH'] = f"{project_root}:{env['PYTHONPATH']}"
-                else:
-                    env['PYTHONPATH'] = str(project_root)
-                
-                # Start subprocess
-                p = subprocess.Popen(
-                    cmd,
-                    env=env,
-                    stdout=sys.stdout,
-                    stderr=sys.stderr
+            if accelerator.is_main_process:
+                logger.info(
+                    f"Starting parallel evaluation across {accelerator.num_processes} GPU(s), "
+                    f"{len(process_samples)} queries per process"
                 )
-                processes.append((gpu_id, p, output_file))
             
-            logger.info(f"All {len(processes)} workers started, waiting for completion...")
+            # Load model on this process's assigned device
+            reranker = MMReranker(self.model_name, device=str(device), **self.model_kwargs)
             
-            # Wait for all processes to complete
-            for gpu_id, p, _ in processes:
-                p.wait()
-                if p.returncode != 0:
-                    logger.error(f"GPU {gpu_id} worker failed with exit code {p.returncode}")
+            # Process assigned queries with progress bar (only on main process)
+            from tqdm import tqdm
+            process_results = []
             
-            logger.info("All workers completed, merging results...")
+            # Create progress bar only on main process
+            pbar = tqdm(
+                process_samples,
+                desc=f"GPU {accelerator.process_index}",
+                disable=not accelerator.is_main_process,
+                position=0
+            )
             
-            # Merge results from all GPUs
-            all_results = [None] * len(eval_samples)
-            for gpu_id, _, output_file in processes:
-                if output_file.exists():
-                    with open(output_file, 'rb') as f:
-                        batch_results = pickle.load(f)
-                        for query_idx, result in batch_results:
-                            all_results[query_idx] = result
-                else:
-                    logger.error(f"Output file not found for GPU {gpu_id}")
-            
-            # Check for failed queries
-            failed_count = sum(1 for r in all_results if r is None)
-            if failed_count > 0:
-                logger.warning(f"{failed_count} queries failed to process")
-            
-            return all_results
-            
-        finally:
-            # Cleanup temporary directory
-            import shutil
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            for eval_sample in pbar:
+                result = _evaluate_single_query(
+                    reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
+                )
+                process_results.append(result)
+        
+        # Gather results from all processes
+        all_results = gather_object(process_results)
+        
+        if accelerator.is_main_process:
+            logger.info(f"Parallel evaluation completed, processed {len(all_results)} queries total")
+        
+        return all_results
     
     def _load_eval_data(
         self,

@@ -35,6 +35,7 @@ dependencies = [
     "sentence-transformers>=5.1.1",
     "packaging>=20.0",
     "peft>=0.7.0",
+    "accelerate>=0.20.0",
 ]
 
 [project.optional-dependencies]
