@@ -73,7 +73,7 @@ def _evaluate_query_batch(
     candidate_docs: List[Document],
     model_name: str,
     model_kwargs: Dict[str, Any],
-    device: str,
+    gpu_id: int,
     rank_kwargs: Dict[str, Any],
     metric_kwargs: Dict[str, Any],
     temp_dir: str
@@ -81,8 +81,8 @@ def _evaluate_query_batch(
     """
     Evaluate a batch of queries on a single GPU (worker function for parallel processing).
     
-    This function loads the model once and processes all queries in the batch,
-    ensuring one model per GPU for optimal parallelization.
+    This function isolates a GPU for exclusive use, loads the model once, and processes
+    all queries in the batch sequentially. Each worker runs in a separate process.
     
     Args:
         worker_id: Worker ID for identification
@@ -90,7 +90,7 @@ def _evaluate_query_batch(
         candidate_docs: List of candidate documents (including ground truth)
         model_name: Model name for initialization
         model_kwargs: Model initialization kwargs
-        device: Device to use (e.g., 'cuda:0')
+        gpu_id: Physical GPU ID to use (will be isolated via CUDA_VISIBLE_DEVICES)
         rank_kwargs: Ranking kwargs
         metric_kwargs: Metric computation kwargs
         temp_dir: Directory to save temporary results
@@ -98,12 +98,21 @@ def _evaluate_query_batch(
     Returns:
         Path to temporary result file
     """
-    # Load model once for this worker
-    reranker = MMReranker(model_name, device=device, **model_kwargs)
+    # Isolate GPU: set CUDA_VISIBLE_DEVICES to ensure this process only sees one GPU
+    # This prevents multiple models from being loaded on the same physical GPU
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
     
-    # Process each query in the batch using the same model instance
+    # Load model once on the isolated GPU (always cuda:0 from this process's perspective)
+    reranker = MMReranker(model_name, device="cuda:0", **model_kwargs)
+    
+    # Process queries with dedicated progress bar for this GPU
     results = []
-    for query_idx, eval_sample in query_batch:
+    for query_idx, eval_sample in tqdm(
+        query_batch,
+        desc=f"GPU {gpu_id}",
+        position=worker_id,
+        leave=True
+    ):
         result = _evaluate_single_query(
             reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
         )
@@ -316,12 +325,13 @@ class Evaluator:
         """
         Evaluate queries in parallel across multiple GPUs.
         
-        Splits data into chunks (one per GPU) and processes each chunk with a
-        dedicated model instance for optimal parallelization efficiency.
+        Each GPU gets an isolated batch of queries and loads the model exactly once.
+        Progress is displayed with one tqdm bar per GPU showing query-level progress.
+        Results are merged via temporary files for zero inter-process communication overhead.
         """
         num_workers = min(self.num_gpus, len(eval_samples))
         
-        # Split queries into batches (one batch per GPU)
+        # Split queries evenly across GPUs (handles uneven division)
         batch_size = (len(eval_samples) + num_workers - 1) // num_workers
         query_batches = []
         
@@ -340,10 +350,9 @@ class Evaluator:
         temp_dir = tempfile.mkdtemp(prefix="mm_reranker_eval_")
         
         try:
-            # Execute batches in parallel (one model per GPU)
-            temp_files = []
+            # Launch workers in parallel (one per GPU, each with isolated CUDA_VISIBLE_DEVICES)
             with ProcessPoolExecutor(max_workers=len(query_batches)) as executor:
-                futures = {
+                futures = [
                     executor.submit(
                         _evaluate_query_batch,
                         worker_id,
@@ -351,18 +360,16 @@ class Evaluator:
                         candidate_docs,
                         self.model_name,
                         self.model_kwargs,
-                        f"cuda:{worker_id}",
+                        worker_id,  # GPU ID matches worker ID (0, 1, 2, ...)
                         rank_kwargs,
                         metric_kwargs,
                         temp_dir
-                    ): worker_id
+                    )
                     for worker_id, batch in query_batches
-                }
+                ]
                 
-                for future in tqdm(as_completed(futures), total=len(futures), 
-                                 desc="Evaluating on GPUs"):
-                    temp_file = future.result()
-                    temp_files.append(temp_file)
+                # Wait for all workers to complete (progress shown by individual GPU tqdm bars)
+                temp_files = [future.result() for future in futures]
             
             # Merge results from temporary files
             all_results = [None] * len(eval_samples)
