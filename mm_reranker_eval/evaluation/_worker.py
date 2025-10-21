@@ -51,9 +51,10 @@ def main():
     print(f"[GPU {gpu_id}] Loaded {len(query_batch)} queries and {len(candidate_docs)} candidates in {load_time:.1f}s", flush=True)
     
     # Load model on the assigned GPU
+    # Note: CUDA_VISIBLE_DEVICES is set to gpu_id, so this process only sees one GPU as cuda:0
     t1 = time.time()
     from mm_reranker_eval.reranker.factory import MMReranker
-    device = f"cuda:{gpu_id}"
+    device = "cuda:0"  # Always cuda:0 because CUDA_VISIBLE_DEVICES isolates the GPU
     reranker = MMReranker(model_name, device=device, **model_kwargs)
     model_time = time.time() - t1
     print(f"[GPU {gpu_id}] Model loaded in {model_time:.1f}s, starting evaluation", flush=True)
