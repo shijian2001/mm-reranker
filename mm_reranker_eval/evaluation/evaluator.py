@@ -18,6 +18,12 @@ from mm_reranker_eval.reranker.base import BaseReranker
 
 logger = logging.getLogger(__name__)
 
+# Set spawn method for proper multiprocessing isolation
+try:
+    mp.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass
+
 
 def _evaluate_single_query(
     reranker: BaseReranker,
@@ -94,6 +100,8 @@ def _gpu_worker(
         metric_kwargs: Metric computation kwargs
         output_file: Path to save results
     """
+    print(f"[GPU {gpu_id}] Worker started", flush=True)
+    
     # Load data from shared files
     with open(query_batch_file, 'rb') as f:
         query_batch = pickle.load(f)
@@ -101,18 +109,17 @@ def _gpu_worker(
     with open(candidate_docs_file, 'rb') as f:
         candidate_docs = pickle.load(f)
     
+    print(f"[GPU {gpu_id}] Loaded {len(query_batch)} queries and {len(candidate_docs)} candidates", flush=True)
+    
     # Load model directly on the specified GPU
     device = f"cuda:{gpu_id}"
     reranker = MMReranker(model_name, device=device, **model_kwargs)
     
+    print(f"[GPU {gpu_id}] Model loaded, starting evaluation", flush=True)
+    
     # Process all queries in this batch
     results = []
-    for query_idx, eval_sample in tqdm(
-        query_batch,
-        desc=f"GPU {gpu_id}",
-        position=gpu_id,
-        leave=True
-    ):
+    for query_idx, eval_sample in tqdm(query_batch, desc=f"GPU {gpu_id}"):
         result = _evaluate_single_query(
             reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
         )
@@ -121,6 +128,8 @@ def _gpu_worker(
     # Save results to file
     with open(output_file, 'wb') as f:
         pickle.dump(results, f)
+    
+    print(f"[GPU {gpu_id}] Completed and saved results", flush=True)
 
 
 def _is_same_document(doc1: Document, doc2: Document) -> bool:
@@ -339,6 +348,8 @@ class Evaluator:
             batch_size = (len(eval_samples) + num_workers - 1) // num_workers
             processes = []
             
+            logger.info(f"Starting {num_workers} GPU workers, {batch_size} queries per GPU")
+            
             for gpu_id in range(num_workers):
                 start_idx = gpu_id * batch_size
                 end_idx = min(start_idx + batch_size, len(eval_samples))
@@ -376,6 +387,8 @@ class Evaluator:
                 )
                 p.start()
                 processes.append((gpu_id, p, output_file))
+            
+            logger.info(f"All {len(processes)} workers started, waiting for completion...")
             
             # Wait for all processes to complete
             for gpu_id, p, _ in processes:
