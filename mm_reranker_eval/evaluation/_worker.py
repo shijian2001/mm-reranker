@@ -1,9 +1,17 @@
 """Independent worker script for GPU-parallel evaluation."""
 
 import sys
+import os
+from pathlib import Path
+
+# Ensure mm_reranker_eval can be imported
+# Add project root to path if not already there
+script_dir = Path(__file__).parent.parent.parent
+if str(script_dir) not in sys.path:
+    sys.path.insert(0, str(script_dir))
+
 import pickle
 import time
-from pathlib import Path
 
 
 def main():

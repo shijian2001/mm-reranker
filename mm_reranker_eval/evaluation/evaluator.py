@@ -171,8 +171,8 @@ class Evaluator:
                 metric_kwargs
             )
         
-        # Aggregate metrics
-        all_metrics = [r.get("metrics", {}) for r in all_results]
+        # Aggregate metrics (filter out None results)
+        all_metrics = [r.get("metrics", {}) for r in all_results if r is not None]
         aggregated_metrics = aggregate_metrics(all_metrics)
         
         # Prepare results
@@ -204,25 +204,48 @@ class Evaluator:
                 sample = eval_samples[i]
                 result = all_results[i]
                 
-                query_result = {
-                    "query_idx": i,
-                    "dataset": sample.dataset,
-                    "id": sample.id,
-                    "query": {
-                        "text": sample.query.text,
-                        "image": sample.query.image,
-                        "video": sample.query.video
-                    },
-                    "match": {
-                        "text": sample.match.text,
-                        "image": sample.match.image,
-                        "video": sample.match.video
-                    },
-                    "metrics": result.get("metrics", {}),
-                    "ranked_indices": result.get("ranked_indices", []),
-                    "scores": result.get("scores", []),
-                    "gt_idx": result.get("gt_idx")
-                }
+                # Handle None results (failed queries)
+                if result is None:
+                    query_result = {
+                        "query_idx": i,
+                        "dataset": sample.dataset,
+                        "id": sample.id,
+                        "query": {
+                            "text": sample.query.text,
+                            "image": sample.query.image,
+                            "video": sample.query.video
+                        },
+                        "match": {
+                            "text": sample.match.text,
+                            "image": sample.match.image,
+                            "video": sample.match.video
+                        },
+                        "metrics": {},
+                        "ranked_indices": [],
+                        "scores": [],
+                        "gt_idx": None,
+                        "failed": True
+                    }
+                else:
+                    query_result = {
+                        "query_idx": i,
+                        "dataset": sample.dataset,
+                        "id": sample.id,
+                        "query": {
+                            "text": sample.query.text,
+                            "image": sample.query.image,
+                            "video": sample.query.video
+                        },
+                        "match": {
+                            "text": sample.match.text,
+                            "image": sample.match.image,
+                            "video": sample.match.video
+                        },
+                        "metrics": result.get("metrics", {}),
+                        "ranked_indices": result.get("ranked_indices", []),
+                        "scores": result.get("scores", []),
+                        "gt_idx": result.get("gt_idx")
+                    }
                 per_query_results.append(query_result)
             
             with open(output_path / "per_query_results.json", "w") as f:
@@ -340,9 +363,17 @@ class Evaluator:
                     str(output_file)
                 ]
                 
-                # Set environment with isolated GPU
+                # Set environment with isolated GPU and Python path
                 env = os.environ.copy()
                 env['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
+                
+                # Ensure Python can find mm_reranker_eval module
+                # Add project root to PYTHONPATH
+                project_root = Path(__file__).parent.parent.parent
+                if 'PYTHONPATH' in env:
+                    env['PYTHONPATH'] = f"{project_root}:{env['PYTHONPATH']}"
+                else:
+                    env['PYTHONPATH'] = str(project_root)
                 
                 # Start subprocess
                 p = subprocess.Popen(
@@ -371,6 +402,13 @@ class Evaluator:
                         batch_results = pickle.load(f)
                         for query_idx, result in batch_results:
                             all_results[query_idx] = result
+                else:
+                    logger.error(f"Output file not found for GPU {gpu_id}")
+            
+            # Check for failed queries
+            failed_count = sum(1 for r in all_results if r is None)
+            if failed_count > 0:
+                logger.warning(f"{failed_count} queries failed to process")
             
             return all_results
             
