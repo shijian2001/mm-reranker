@@ -3,6 +3,7 @@
 import os
 import json
 import logging
+import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
@@ -12,39 +13,31 @@ from tqdm import tqdm
 from mm_reranker_eval.data.types import Query, Document, EvalSample
 from mm_reranker_eval.evaluation.metrics import compute_metrics, aggregate_metrics
 from mm_reranker_eval.reranker.factory import MMReranker
+from mm_reranker_eval.reranker.base import BaseReranker
 
 logger = logging.getLogger(__name__)
 
 
 def _evaluate_single_query(
-    query_idx: int,
+    reranker: BaseReranker,
     eval_sample: EvalSample,
     candidate_docs: List[Document],
-    model_name: str,
-    model_kwargs: Dict[str, Any],
-    device: str,
     rank_kwargs: Dict[str, Any],
     metric_kwargs: Dict[str, Any]
-) -> Tuple[int, Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
-    Evaluate a single query (worker function for parallel processing).
+    Evaluate a single query using a pre-initialized reranker.
     
     Args:
-        query_idx: Query index
+        reranker: Pre-initialized reranker instance
         eval_sample: Evaluation sample with query and ground truth
-        candidate_docs: List of candidate documents (including the ground truth)
-        model_name: Model name for initialization
-        model_kwargs: Model initialization kwargs
-        device: Device to use
+        candidate_docs: List of candidate documents (including ground truth)
         rank_kwargs: Ranking kwargs
         metric_kwargs: Metric computation kwargs
         
     Returns:
-        Tuple of (query_idx, result_dict with metrics and ranking info)
+        Result dict with metrics and ranking info
     """
-    # Initialize model in this process
-    reranker = MMReranker(model_name, device=device, **model_kwargs)
-    
     # Find ground truth index
     gt_idx = None
     for i, doc in enumerate(candidate_docs):
@@ -53,8 +46,8 @@ def _evaluate_single_query(
             break
     
     if gt_idx is None:
-        logger.warning(f"Ground truth not found in candidates for query {query_idx}")
-        return query_idx, {"metrics": {}}
+        logger.warning(f"Ground truth not found for sample {eval_sample.id}")
+        return {"metrics": {}}
     
     # Rank documents
     rank_result = reranker.rank(eval_sample.query, candidate_docs, **rank_kwargs)
@@ -66,12 +59,62 @@ def _evaluate_single_query(
         **metric_kwargs
     )
     
-    return query_idx, {
+    return {
         "metrics": metrics,
         "ranked_indices": rank_result.ranked_indices,
         "scores": rank_result.scores or [],
         "gt_idx": gt_idx
     }
+
+
+def _evaluate_query_batch(
+    worker_id: int,
+    query_batch: List[Tuple[int, EvalSample]],
+    candidate_docs: List[Document],
+    model_name: str,
+    model_kwargs: Dict[str, Any],
+    device: str,
+    rank_kwargs: Dict[str, Any],
+    metric_kwargs: Dict[str, Any],
+    temp_dir: str
+) -> str:
+    """
+    Evaluate a batch of queries on a single GPU (worker function for parallel processing).
+    
+    This function loads the model once and processes all queries in the batch,
+    ensuring one model per GPU for optimal parallelization.
+    
+    Args:
+        worker_id: Worker ID for identification
+        query_batch: List of (query_idx, eval_sample) tuples to evaluate
+        candidate_docs: List of candidate documents (including ground truth)
+        model_name: Model name for initialization
+        model_kwargs: Model initialization kwargs
+        device: Device to use (e.g., 'cuda:0')
+        rank_kwargs: Ranking kwargs
+        metric_kwargs: Metric computation kwargs
+        temp_dir: Directory to save temporary results
+        
+    Returns:
+        Path to temporary result file
+    """
+    # Load model once for this worker
+    reranker = MMReranker(model_name, device=device, **model_kwargs)
+    
+    # Process each query in the batch using the same model instance
+    results = []
+    for query_idx, eval_sample in query_batch:
+        result = _evaluate_single_query(
+            reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
+        )
+        results.append((query_idx, result))
+    
+    # Save results to temporary file
+    temp_file = Path(temp_dir) / f"worker_{worker_id}.json"
+    with open(temp_file, "w") as f:
+        json.dump(results, f)
+    
+    return str(temp_file)
 
 
 def _is_same_document(doc1: Document, doc2: Document) -> bool:
@@ -255,36 +298,11 @@ class Evaluator:
         reranker = MMReranker(self.model_name, device=device, **self.model_kwargs)
         
         all_results = []
-        
         for eval_sample in tqdm(eval_samples, desc="Evaluating"):
-            # Find ground truth index
-            gt_idx = None
-            for i, doc in enumerate(candidate_docs):
-                if _is_same_document(doc, eval_sample.match):
-                    gt_idx = i
-                    break
-            
-            if gt_idx is None:
-                logger.warning(f"Ground truth not found for sample {eval_sample.id}")
-                all_results.append({"metrics": {}})
-                continue
-            
-            # Rank
-            rank_result = reranker.rank(eval_sample.query, candidate_docs, **rank_kwargs)
-            
-            # Compute metrics
-            metrics = compute_metrics(
-                ranked_indices=rank_result.ranked_indices,
-                relevant_idx=gt_idx,
-                **metric_kwargs
+            result = _evaluate_single_query(
+                reranker, eval_sample, candidate_docs, rank_kwargs, metric_kwargs
             )
-            
-            all_results.append({
-                "metrics": metrics,
-                "ranked_indices": rank_result.ranked_indices,
-                "scores": rank_result.scores or [],
-                "gt_idx": gt_idx
-            })
+            all_results.append(result)
         
         return all_results
     
@@ -295,40 +313,71 @@ class Evaluator:
         rank_kwargs: Dict[str, Any],
         metric_kwargs: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
-        """Evaluate queries in parallel across multiple GPUs."""
+        """
+        Evaluate queries in parallel across multiple GPUs.
+        
+        Splits data into chunks (one per GPU) and processes each chunk with a
+        dedicated model instance for optimal parallelization efficiency.
+        """
         num_workers = min(self.num_gpus, len(eval_samples))
         
-        # Prepare tasks
-        tasks = []
-        for i, eval_sample in enumerate(eval_samples):
-            gpu_id = i % num_workers
-            device = f"cuda:{gpu_id}"
+        # Split queries into batches (one batch per GPU)
+        batch_size = (len(eval_samples) + num_workers - 1) // num_workers
+        query_batches = []
+        
+        for worker_id in range(num_workers):
+            start_idx = worker_id * batch_size
+            end_idx = min(start_idx + batch_size, len(eval_samples))
             
-            tasks.append((
-                i,
-                eval_sample,
-                candidate_docs,
-                self.model_name,
-                self.model_kwargs,
-                device,
-                rank_kwargs,
-                metric_kwargs
-            ))
-        
-        # Execute in parallel
-        all_results = [None] * len(eval_samples)
-        
-        with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            futures = {
-                executor.submit(_evaluate_single_query, *task): task[0]
-                for task in tasks
-            }
+            if start_idx >= len(eval_samples):
+                break
             
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Evaluating"):
-                query_idx, result = future.result()
-                all_results[query_idx] = result
+            # Create batch with (query_idx, eval_sample) tuples
+            batch = [(i, eval_samples[i]) for i in range(start_idx, end_idx)]
+            query_batches.append((worker_id, batch))
         
-        return all_results
+        # Create temporary directory for worker results
+        temp_dir = tempfile.mkdtemp(prefix="mm_reranker_eval_")
+        
+        try:
+            # Execute batches in parallel (one model per GPU)
+            temp_files = []
+            with ProcessPoolExecutor(max_workers=len(query_batches)) as executor:
+                futures = {
+                    executor.submit(
+                        _evaluate_query_batch,
+                        worker_id,
+                        batch,
+                        candidate_docs,
+                        self.model_name,
+                        self.model_kwargs,
+                        f"cuda:{worker_id}",
+                        rank_kwargs,
+                        metric_kwargs,
+                        temp_dir
+                    ): worker_id
+                    for worker_id, batch in query_batches
+                }
+                
+                for future in tqdm(as_completed(futures), total=len(futures), 
+                                 desc="Evaluating on GPUs"):
+                    temp_file = future.result()
+                    temp_files.append(temp_file)
+            
+            # Merge results from temporary files
+            all_results = [None] * len(eval_samples)
+            for temp_file in temp_files:
+                with open(temp_file, "r") as f:
+                    batch_results = json.load(f)
+                    for query_idx, result in batch_results:
+                        all_results[query_idx] = result
+            
+            return all_results
+            
+        finally:
+            # Cleanup temporary directory
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     def _load_eval_data(
         self,
